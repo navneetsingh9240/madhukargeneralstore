@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 font-sans antialiased selection:bg-brand-500 selection:text-white;
+  }
+}
+
+/* Custom 3D Floating Animations & Glassmorphism */
+@keyframes float {
+  0% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-10px) rotate(2deg); }
+  100% { transform: translateY(0px) rotate(0deg); }
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+.animate-float-delayed {
+  animation: float 5s ease-in-out infinite 2s;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+@media print {
+  header, footer, nav, .no-print, .print\:hidden {
+    display: none !important;
+  }
+  body, main {
+    background: white !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+}

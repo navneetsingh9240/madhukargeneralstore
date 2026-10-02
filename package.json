@@ -1,0 +1,57 @@
+{
+  "name": "madhukar-general-store",
+  "version": "1.0.0",
+  "description": "Production-Ready Scalable E-Commerce + Billing + Delivery Platform for Madhukar General Store",
+  "private": true,
+  "workspaces": [
+    "frontend/customer",
+    "frontend/admin",
+    "backend"
+  ],
+  "scripts": {
+    "postinstall": "npx prisma generate && npm install --prefix frontend/customer && npm install --prefix frontend/admin && npm install --prefix backend && cp -r node_modules/.prisma backend/node_modules/ 2>/dev/null || true",
+    "clean": "node -e \"const fs = require('fs'); ['frontend/customer/.next', 'frontend/admin/.next', '.next'].forEach(p => fs.rmSync(p, { recursive: true, force: true }));\"",
+    "dev": "npm run clean && concurrently \"npm run dev:backend\" \"npm run dev:customer\" \"npm run dev:admin\"",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:customer": "npm run dev --prefix frontend/customer",
+    "dev:admin": "npm run dev --prefix frontend/admin",
+    "build": "npm run clean && npm run build --prefix frontend/customer && npm run build --prefix frontend/admin",
+    "build:customer": "npm run build --prefix frontend/customer",
+    "build:admin": "npm run build --prefix frontend/admin",
+    "start": "concurrently \"npm run start --prefix backend\" \"npm run start --prefix frontend/customer\" \"npm run start --prefix frontend/admin\"",
+    "db:push": "npx prisma db push && npx prisma generate && mkdir -p backend/prisma && cp prisma/dev.db backend/prisma/dev.db 2>/dev/null || true && cp -r node_modules/.prisma backend/node_modules/ 2>/dev/null || true",
+    "db:generate": "npx prisma generate",
+    "db:seed": "node -r dotenv/config prisma/seed.js",
+    "db:studio": "npx prisma studio",
+    "test": "node -r dotenv/config scripts/run-tests.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.10.0",
+    "@swc/helpers": "^0.5.13",
+    "bcryptjs": "^2.4.3",
+    "browserslist": "^4.23.3",
+    "canvas-confetti": "^1.9.4",
+    "clsx": "^2.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "framer-motion": "^11.11.17",
+    "jsonwebtoken": "^9.0.2",
+    "jsqr": "^1.4.0",
+    "lucide-react": "^0.460.0",
+    "next": "^16.3.6",
+    "pdfkit": "^0.15.1",
+    "qrcode": "^1.5.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^2.5.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.0",
+    "postcss": "^8.4.49",
+    "prisma": "^8.0.0-rc.19",
+    "tailwindcss": "^3.4.15"
+  }
+}

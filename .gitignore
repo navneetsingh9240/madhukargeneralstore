@@ -1,0 +1,22 @@
+node_modules
+.next
+build
+dist
+.env
+.env.local
+*.log
+.DS_Store
+coverage
+prisma/schema.db
+prisma/*.db
+prisma/*.sqlite
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Generated / local files
+node_modules/
+.next/
+dist/
+build/
