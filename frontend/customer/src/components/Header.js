@@ -103,7 +103,7 @@ export default function Header() {
       try {
         const API_URL =
           process.env.NEXT_PUBLIC_API_URL ||
-          "http://localhost:5000";
+          "https://madhukargeneralstore.onrender.com";
 
         const response = await fetch(
           `${API_URL}/api/categories`,
@@ -173,7 +173,7 @@ export default function Header() {
       try {
         const API_URL =
           process.env.NEXT_PUBLIC_API_URL ||
-          "http://localhost:5000";
+          "https://madhukargeneralstore.onrender.com";
 
         const response = await fetch(
           `${API_URL}/api/categories`,
@@ -367,7 +367,7 @@ export default function Header() {
     try {
       const API_URL =
         process.env.NEXT_PUBLIC_API_URL ||
-        "http://localhost:5000";
+        "https://madhukargeneralstore.onrender.com";
 
       const res = await fetch(
         `${API_URL}/api/delivery/check/${inputPin}`
@@ -1302,7 +1302,7 @@ export default function Header() {
                 <input
                   type="text"
                   maxLength={6}
-                  placeholder="e.g. 800001 or 110001"
+                  placeholder="e.g.851129 , 851101"
                   value={inputPin}
                   onChange={(e) =>
                     setInputPin(

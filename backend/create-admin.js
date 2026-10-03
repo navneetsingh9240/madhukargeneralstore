@@ -1,3 +1,17 @@
+const fs = require('fs');
+const path = require('path');
+const dotenv = require('dotenv');
+
+const envPath = path.join(__dirname, '.env');
+const envContent = fs.readFileSync(envPath, 'utf8');
+const parsedEnv = dotenv.parse(envContent);
+
+if (!parsedEnv.DATABASE_URL || !parsedEnv.DATABASE_URL.startsWith('mysql://')) {
+  throw new Error('DATABASE_URL in backend/.env is not a valid mysql:// URL.');
+}
+
+process.env.DATABASE_URL = parsedEnv.DATABASE_URL;
+
 const readline = require('readline');
 const bcrypt = require('bcryptjs');
 const { PrismaClient } = require('@prisma/client');
