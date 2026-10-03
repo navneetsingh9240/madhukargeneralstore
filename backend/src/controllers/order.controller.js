@@ -1,10 +1,7 @@
 const prisma = require('../config/db');
 
-
-
 // ============================================================
-// Helper: Always convert Prisma Decimal / String / Number
-// values into a safe JavaScript number
+// HELPER
 // ============================================================
 
 function toNumber(value, fallback = 0) {
@@ -13,12 +10,11 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
-
-
 // ============================================================
+// COUPON VALIDATION
+// ============================================================
+
 // POST /api/coupons/validate
-// ============================================================
-
 async function validateCoupon(req, res) {
   try {
     const { code, subtotal = 0 } = req.body;
@@ -94,7 +90,6 @@ async function validateCoupon(req, res) {
         description: coupon.description,
       },
     });
-
   } catch (error) {
     console.error('Validate coupon error:', error);
 
@@ -105,12 +100,11 @@ async function validateCoupon(req, res) {
   }
 }
 
-
-
 // ============================================================
+// CREATE ORDER
+// ============================================================
+
 // POST /api/orders
-// ============================================================
-
 async function createOrder(req, res) {
   try {
     const userId = req.user.id;
@@ -123,8 +117,6 @@ async function createOrder(req, res) {
       deliveryNotes,
     } = req.body;
 
-
-
     // --------------------------------------------------------
     // Validate Cart
     // --------------------------------------------------------
@@ -136,8 +128,6 @@ async function createOrder(req, res) {
       });
     }
 
-
-
     // --------------------------------------------------------
     // Validate Address
     // --------------------------------------------------------
@@ -148,8 +138,6 @@ async function createOrder(req, res) {
         message: 'Delivery address is required',
       });
     }
-
-
 
     // --------------------------------------------------------
     // 1. Fetch Address & Validate PIN
@@ -177,8 +165,6 @@ async function createOrder(req, res) {
         message: 'Invalid 6-digit delivery PIN code',
       });
     }
-
-
 
     // --------------------------------------------------------
     // Find Delivery Area
@@ -212,8 +198,6 @@ async function createOrder(req, res) {
       });
     }
 
-
-
     // --------------------------------------------------------
     // Fetch Store Settings
     // --------------------------------------------------------
@@ -221,13 +205,11 @@ async function createOrder(req, res) {
     const storeSettings =
       (await prisma.storeSettings.findFirst()) || {
         enableGst: true,
-        gstPercentage: 5.0,
+        gstPercentage: 0.0,
         invoicePrefix: 'MGS-INV',
         invoiceYear: '2026',
         freeDeliveryThreshold: 499,
       };
-
-
 
     // --------------------------------------------------------
     // 2. Re-validate Prices & Stocks Server-Side
@@ -237,8 +219,6 @@ async function createOrder(req, res) {
     let productDiscount = 0;
 
     const orderItemsData = [];
-
-
 
     for (const item of items) {
       const product = await prisma.product.findUnique({
@@ -250,8 +230,6 @@ async function createOrder(req, res) {
         },
       });
 
-
-
       // ------------------------------------------------------
       // Product validation
       // ------------------------------------------------------
@@ -259,11 +237,11 @@ async function createOrder(req, res) {
       if (!product || !product.isActive) {
         return res.status(400).json({
           success: false,
-          message: `Product "${item.productName || 'Selected product'}" is no longer available.`,
+          message: `Product "${
+            item.productName || 'Selected product'
+          }" is no longer available.`,
         });
       }
-
-
 
       // ------------------------------------------------------
       // Stock validation
@@ -282,23 +260,17 @@ async function createOrder(req, res) {
         });
       }
 
-
-
       // ------------------------------------------------------
-      // IMPORTANT:
-      // Convert Prisma Decimal values BEFORE arithmetic
+      // Convert Prisma Decimal values before arithmetic
       // ------------------------------------------------------
 
       const itemMRP = toNumber(product.mrp);
       const itemPrice = toNumber(product.sellingPrice);
 
-      const itemSubtotal =
-        itemPrice * itemQuantity;
+      const itemSubtotal = itemPrice * itemQuantity;
 
       const itemDiscount =
         (itemMRP - itemPrice) * itemQuantity;
-
-
 
       // ------------------------------------------------------
       // Add to order totals
@@ -306,8 +278,6 @@ async function createOrder(req, res) {
 
       subtotal += itemSubtotal;
       productDiscount += itemDiscount;
-
-
 
       // ------------------------------------------------------
       // Store order item
@@ -327,8 +297,6 @@ async function createOrder(req, res) {
       });
     }
 
-
-
     // --------------------------------------------------------
     // Minimum Order Validation
     // --------------------------------------------------------
@@ -342,8 +310,6 @@ async function createOrder(req, res) {
         message: `Minimum order amount for area (${deliveryArea.area}) is ₹${deliveryArea.minimumOrderAmount}. Current total: ₹${subtotal}`,
       });
     }
-
-
 
     // --------------------------------------------------------
     // 3. Coupon Discount Calculation Server-Side
@@ -368,7 +334,6 @@ async function createOrder(req, res) {
           couponRecord.usedCount < couponRecord.usageLimit) &&
         subtotal >= toNumber(couponRecord.minOrderAmount)
       ) {
-
         if (couponRecord.discountType === 'PERCENTAGE') {
           couponDiscount =
             (subtotal *
@@ -383,18 +348,17 @@ async function createOrder(req, res) {
             couponDiscount =
               toNumber(couponRecord.maxDiscount);
           }
-
         } else {
           couponDiscount =
             toNumber(couponRecord.discountAmount);
         }
 
-        couponDiscount =
-          Math.min(couponDiscount, subtotal);
+        couponDiscount = Math.min(
+          couponDiscount,
+          subtotal
+        );
       }
     }
-
-
 
     // --------------------------------------------------------
     // 4. Delivery Charge Calculation
@@ -412,8 +376,6 @@ async function createOrder(req, res) {
     ) {
       deliveryCharge = 0;
     }
-
-
 
     // --------------------------------------------------------
     // 5. Tax Calculation
@@ -444,10 +406,8 @@ async function createOrder(req, res) {
         (netAmount * gstPercentage) / 100;
     }
 
-
-
     // --------------------------------------------------------
-    // FINAL TOTAL
+    // Final Total
     // --------------------------------------------------------
 
     const totalAmount =
@@ -459,10 +419,8 @@ async function createOrder(req, res) {
         ) * 100
       ) / 100;
 
-
-
     // --------------------------------------------------------
-    // Debug information
+    // Debug Information
     // --------------------------------------------------------
 
     console.log('\n========================================');
@@ -513,10 +471,13 @@ async function createOrder(req, res) {
 
     console.log('========================================\n');
 
-
-
     // --------------------------------------------------------
     // 6. Execute Order Creation in Database Transaction
+    //
+    // IMPORTANT:
+    // Render -> Aiven can take longer than a local MySQL
+    // transaction. Increase Prisma interactive transaction
+    // timeout to prevent P2028.
     // --------------------------------------------------------
 
     const orderCount =
@@ -525,42 +486,25 @@ async function createOrder(req, res) {
     const orderNumber =
       `MGS${10001 + orderCount}`;
 
-
-
-    const order =
-      await prisma.$transaction(async (tx) => {
-
-
-
+    const order = await prisma.$transaction(
+      async (tx) => {
         // ----------------------------------------------------
         // ATOMIC INVENTORY CHECK + DEDUCTION
         // ----------------------------------------------------
-        // Stock is checked and deducted in the same database
-        // operation.
-        //
-        // Example:
-        // Stock = 15
-        // Customer orders = 16
-        //
-        // currentStock >= 16 is FALSE
-        // Therefore updateMany affects 0 rows.
-        // The order is rejected.
-        // ----------------------------------------------------
 
         for (const item of orderItemsData) {
-
           const quantity = toNumber(item.quantity);
 
-          if (!Number.isInteger(quantity) || quantity <= 0) {
+          if (
+            !Number.isInteger(quantity) ||
+            quantity <= 0
+          ) {
             throw new Error(
               `INVALID_QUANTITY|${item.productName}`
             );
           }
 
-          // Atomic stock check + deduction.
-          // The update succeeds only when current stock is
-          // greater than or equal to the requested quantity.
-
+          // Atomic stock check + deduction
           const inventoryUpdate =
             await tx.inventory.updateMany({
               where: {
@@ -569,6 +513,7 @@ async function createOrder(req, res) {
                   gte: quantity,
                 },
               },
+
               data: {
                 currentStock: {
                   decrement: quantity,
@@ -576,7 +521,7 @@ async function createOrder(req, res) {
               },
             });
 
-          // No row updated means there is not enough stock.
+          // No row updated = insufficient stock
           if (inventoryUpdate.count === 0) {
             const currentInventory =
               await tx.inventory.findUnique({
@@ -587,7 +532,9 @@ async function createOrder(req, res) {
 
             const availableStock =
               currentInventory
-                ? toNumber(currentInventory.currentStock)
+                ? toNumber(
+                    currentInventory.currentStock
+                  )
                 : 0;
 
             throw new Error(
@@ -595,7 +542,7 @@ async function createOrder(req, res) {
             );
           }
 
-          // Read the remaining stock and update its status.
+          // Read remaining stock
           const updatedInventory =
             await tx.inventory.findUnique({
               where: {
@@ -605,12 +552,16 @@ async function createOrder(req, res) {
 
           const remainingStock =
             updatedInventory
-              ? toNumber(updatedInventory.currentStock)
+              ? toNumber(
+                  updatedInventory.currentStock
+                )
               : 0;
 
           const lowStockThreshold =
             updatedInventory
-              ? toNumber(updatedInventory.lowStockThreshold)
+              ? toNumber(
+                  updatedInventory.lowStockThreshold
+                )
               : 5;
 
           const newStatus =
@@ -624,13 +575,12 @@ async function createOrder(req, res) {
             where: {
               productId: item.productId,
             },
+
             data: {
               status: newStatus,
             },
           });
         }
-
-
 
         // ----------------------------------------------------
         // Increment Coupon Usage
@@ -641,6 +591,7 @@ async function createOrder(req, res) {
             where: {
               id: couponRecord.id,
             },
+
             data: {
               usedCount: {
                 increment: 1,
@@ -649,17 +600,13 @@ async function createOrder(req, res) {
           });
         }
 
-
-
         // ----------------------------------------------------
         // Create Order
         // ----------------------------------------------------
 
         const newOrder =
           await tx.order.create({
-
             data: {
-
               orderNumber,
 
               userId,
@@ -711,16 +658,10 @@ async function createOrder(req, res) {
             },
 
             include: {
-
               items: true,
-
               address: true,
-
             },
-
           });
-
-
 
         // ----------------------------------------------------
         // Generate Invoice
@@ -735,33 +676,28 @@ async function createOrder(req, res) {
           ).padStart(6, '0')}`;
 
         const qrToken =
-          `mgs_qr_tok_${Date.now()}_${newOrder.id.slice(0, 8)}`;
+          `mgs_qr_tok_${Date.now()}_${newOrder.id.slice(
+            0,
+            8
+          )}`;
 
         await tx.invoice.create({
-
           data: {
-
             invoiceNumber,
 
             orderId:
               newOrder.id,
 
             qrToken,
-
           },
-
         });
-
-
 
         // ----------------------------------------------------
         // Create Payment Record
         // ----------------------------------------------------
 
         await tx.payment.create({
-
           data: {
-
             orderId:
               newOrder.id,
 
@@ -781,17 +717,20 @@ async function createOrder(req, res) {
                     Math.random() * 1000
                   )}`
                 : null,
-
           },
-
         });
 
-
-
         return newOrder;
-      });
+      },
 
-
+      // ======================================================
+      // IMPORTANT TRANSACTION OPTIONS
+      // ======================================================
+      {
+        maxWait: 10000,
+        timeout: 60000,
+      }
+    );
 
     // --------------------------------------------------------
     // WhatsApp Notification
@@ -812,14 +751,11 @@ async function createOrder(req, res) {
       }). Direct WhatsApp Support: https://wa.me/919876543210"\n`
     );
 
-
-
     // --------------------------------------------------------
     // Response
     // --------------------------------------------------------
 
     return res.status(201).json({
-
       success: true,
 
       message:
@@ -827,29 +763,37 @@ async function createOrder(req, res) {
 
       data:
         order,
-
     });
-
-
-
   } catch (error) {
+    // --------------------------------------------------------
+    // Detailed Error Logging
+    // --------------------------------------------------------
 
-    console.error(
-      'Create order error:',
-      error
-    );
+    console.error('========================================');
+    console.error('CREATE ORDER ERROR');
+    console.error('========================================');
+    console.error('Error name:', error?.name);
+    console.error('Error code:', error?.code);
+    console.error('Error message:', error?.message);
+    console.error('Error meta:', error?.meta);
+    console.error('Full error:', error);
+    console.error('========================================');
 
-    // Inventory validation errors are returned as a
-    // customer-facing 400 response.
-    // The Prisma transaction is rolled back automatically
-    // when the error is thrown.
+    // --------------------------------------------------------
+    // Insufficient Stock Error
+    // --------------------------------------------------------
 
     if (
       error.message &&
-      error.message.startsWith('INSUFFICIENT_STOCK|')
+      error.message.startsWith(
+        'INSUFFICIENT_STOCK|'
+      )
     ) {
-      const [, productName, availableStock] =
-        error.message.split('|');
+      const [
+        ,
+        productName,
+        availableStock,
+      ] = error.message.split('|');
 
       return res.status(400).json({
         success: false,
@@ -857,12 +801,20 @@ async function createOrder(req, res) {
       });
     }
 
+    // --------------------------------------------------------
+    // Invalid Quantity Error
+    // --------------------------------------------------------
+
     if (
       error.message &&
-      error.message.startsWith('INVALID_QUANTITY|')
+      error.message.startsWith(
+        'INVALID_QUANTITY|'
+      )
     ) {
-      const [, productName] =
-        error.message.split('|');
+      const [
+        ,
+        productName,
+      ] = error.message.split('|');
 
       return res.status(400).json({
         success: false,
@@ -871,36 +823,27 @@ async function createOrder(req, res) {
     }
 
     return res.status(500).json({
-
       success: false,
-
       message:
         'Failed to process and place order',
-
     });
-
   }
 }
 
-
-
 // ============================================================
+// GET USER ORDERS
+// ============================================================
+
 // GET /api/orders
-// ============================================================
-
 async function getUserOrders(req, res) {
-
   try {
-
     const orders =
       await prisma.order.findMany({
-
         where: {
           userId: req.user.id,
         },
 
         include: {
-
           items: true,
 
           invoice: {
@@ -911,74 +854,54 @@ async function getUserOrders(req, res) {
           },
 
           address: true,
-
         },
 
         orderBy: {
           createdAt: 'desc',
         },
-
       });
 
-
-
     return res.json({
-
       success: true,
-
       data: orders,
-
     });
-
-
-
   } catch (error) {
-
     console.error(
       'Get user orders error:',
       error
     );
 
     return res.status(500).json({
-
       success: false,
-
       message:
         'Failed to fetch order history',
-
     });
-
   }
 }
 
-
-
 // ============================================================
+// GET ORDER DETAILS
+// ============================================================
+
 // GET /api/orders/:id
-// ============================================================
-
 async function getOrderDetails(req, res) {
-
   try {
-
     const { id } = req.params;
 
     const where = {
       id,
     };
 
+    // Customers can only see their own orders
     if (req.user.role === 'CUSTOMER') {
-      where.userId =
-        req.user.id;
+      where.userId = req.user.id;
     }
 
     const order =
       await prisma.order.findFirst({
-
         where,
 
         include: {
-
           items: true,
 
           address: true,
@@ -994,72 +917,41 @@ async function getOrderDetails(req, res) {
               phone: true,
             },
           },
-
         },
-
       });
-
-
 
     if (!order) {
-
       return res.status(404).json({
-
         success: false,
-
-        message:
-          'Order not found',
-
+        message: 'Order not found',
       });
-
     }
 
-
-
     return res.json({
-
       success: true,
-
-      data:
-        order,
-
+      data: order,
     });
-
-
-
   } catch (error) {
-
     console.error(
       'Get order details error:',
       error
     );
 
     return res.status(500).json({
-
       success: false,
-
       message:
         'Failed to fetch order details',
-
     });
-
   }
 }
 
-
-
 // ============================================================
-// Exports
+// EXPORTS
 // ============================================================
 
 module.exports = {
-
   validateCoupon,
-
   createOrder,
-
   getUserOrders,
-
   getOrderDetails,
-
 };
