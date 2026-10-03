@@ -1,11 +1,16 @@
 const prisma = require('../config/db');
 
+// ============================================================
+// CHECK DELIVERY PIN CODE
+// ============================================================
+
 // GET /api/delivery/check/:pincode
 async function checkPincode(req, res) {
   try {
-    const { pincode } = req.params;
+    const pincode = String(req.params.pincode || '').trim();
 
-    if (!pincode || !/^\d{6}$/.test(pincode)) {
+    // Validate 6-digit Indian PIN code
+    if (!/^\d{6}$/.test(pincode)) {
       return res.status(400).json({
         success: false,
         isServiceable: false,
@@ -13,12 +18,16 @@ async function checkPincode(req, res) {
       });
     }
 
-    const area = await prisma.deliveryArea.findUnique({
-      where: { pincode },
+    // Find delivery area
+    let area = await prisma.deliveryArea.findUnique({
+      where: {
+        pincode,
+      },
     });
 
+    // Auto-create serviceable delivery area record
+    // for newly detected valid 6-digit PIN codes
     if (!area) {
-      // Auto-create serviceable delivery area record for newly detected valid 6-digit Indian PIN codes
       area = await prisma.deliveryArea.create({
         data: {
           pincode,
@@ -33,6 +42,7 @@ async function checkPincode(req, res) {
       });
     }
 
+    // Delivery disabled for this PIN
     if (!area.isActive) {
       return res.status(200).json({
         success: true,
@@ -57,46 +67,131 @@ async function checkPincode(req, res) {
     });
   } catch (error) {
     console.error('Check pincode error:', error);
-    return res.status(500).json({ success: false, message: 'Failed to check PIN code availability' });
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to check PIN code availability',
+    });
   }
 }
+
+// ============================================================
+// GET USER ADDRESSES
+// ============================================================
 
 // GET /api/addresses
 async function getUserAddresses(req, res) {
   try {
     const addresses = await prisma.address.findMany({
-      where: { userId: req.user.id },
-      orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+      where: {
+        userId: req.user.id,
+      },
+
+      orderBy: [
+        {
+          isDefault: 'desc',
+        },
+        {
+          createdAt: 'desc',
+        },
+      ],
     });
 
-    return res.json({ success: true, data: addresses });
+    return res.json({
+      success: true,
+      data: addresses,
+    });
   } catch (error) {
-    return res.status(500).json({ success: false, message: 'Failed to fetch addresses' });
+    console.error('Get user addresses error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch addresses',
+    });
   }
 }
+
+// ============================================================
+// ADD USER ADDRESS
+// ============================================================
 
 // POST /api/addresses
 async function addAddress(req, res) {
   try {
-    const { fullName, mobileNumber, houseFlat, streetArea, city, state, pincode, latitude, longitude, mapUrl, isDefault } = req.body;
+    const {
+      fullName,
+      mobileNumber,
+      houseFlat,
+      streetArea,
+      city,
+      state,
+      pincode,
+      latitude,
+      longitude,
+      mapUrl,
+      isDefault,
+    } = req.body;
 
-    if (!fullName || !mobileNumber || !houseFlat || !streetArea || !city || !state || !pincode) {
-      return res.status(400).json({ success: false, message: 'All mandatory address fields including 6-digit PIN code are required' });
+    // --------------------------------------------------------
+    // Normalize input
+    // --------------------------------------------------------
+
+    const cleanFullName = String(fullName || '').trim();
+    const cleanMobileNumber = String(mobileNumber || '').trim();
+    const cleanHouseFlat = String(houseFlat || '').trim();
+    const cleanStreetArea = String(streetArea || '').trim();
+    const cleanCity = String(city || '').trim();
+    const cleanState = String(state || '').trim();
+    const cleanPincode = String(pincode || '').trim();
+
+    // --------------------------------------------------------
+    // Validate mandatory fields
+    // --------------------------------------------------------
+
+    if (
+      !cleanFullName ||
+      !cleanMobileNumber ||
+      !cleanHouseFlat ||
+      !cleanStreetArea ||
+      !cleanCity ||
+      !cleanState ||
+      !cleanPincode
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'All mandatory address fields including 6-digit PIN code are required',
+      });
     }
 
-    if (!/^\d{6}$/.test(pincode)) {
-      return res.status(400).json({ success: false, message: 'PIN code must be exactly 6 digits' });
+    // --------------------------------------------------------
+    // Validate PIN code
+    // --------------------------------------------------------
+
+    if (!/^\d{6}$/.test(cleanPincode)) {
+      return res.status(400).json({
+        success: false,
+        message: 'PIN code must be exactly 6 digits',
+      });
     }
 
-    // Check or auto-create PIN code delivery area
-    let deliveryArea = await prisma.deliveryArea.findUnique({ where: { pincode } });
+    // --------------------------------------------------------
+    // Check / auto-create delivery area
+    // --------------------------------------------------------
+
+    let deliveryArea = await prisma.deliveryArea.findUnique({
+      where: {
+        pincode: cleanPincode,
+      },
+    });
+
     if (!deliveryArea) {
       deliveryArea = await prisma.deliveryArea.create({
         data: {
-          pincode,
-          area: streetArea || 'Standard Area',
-          city: city || 'Standard City',
-          state: state || 'Standard State',
+          pincode: cleanPincode,
+          area: cleanStreetArea || 'Standard Area',
+          city: cleanCity || 'Standard City',
+          state: cleanState || 'Standard State',
           deliveryCharge: 30,
           minimumOrderAmount: 50,
           estimatedDeliveryTime: 'Same Day / Next Day Delivery',
@@ -105,47 +200,143 @@ async function addAddress(req, res) {
       });
     }
 
+    // --------------------------------------------------------
+    // Check whether delivery is active
+    // --------------------------------------------------------
+
     if (!deliveryArea.isActive) {
       return res.status(400).json({
         success: false,
-        message: `Delivery is currently paused in PIN code area ${pincode}. Please enter a serviceable PIN code.`,
+        message: `Delivery is currently paused in PIN code area ${cleanPincode}. Please enter a serviceable PIN code.`,
       });
     }
+
+    // --------------------------------------------------------
+    // Handle default address
+    // --------------------------------------------------------
 
     if (isDefault) {
       await prisma.address.updateMany({
-        where: { userId: req.user.id },
-        data: { isDefault: false },
+        where: {
+          userId: req.user.id,
+        },
+        data: {
+          isDefault: false,
+        },
       });
     }
 
-    const addressCount = await prisma.address.count({ where: { userId: req.user.id } });
+    // --------------------------------------------------------
+    // Check existing address count
+    // --------------------------------------------------------
 
-    const computedMapUrl = mapUrl || (latitude && longitude ? `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}` : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${houseFlat}, ${streetArea}, ${city}, ${state} ${pincode}`)}`);
+    const addressCount = await prisma.address.count({
+      where: {
+        userId: req.user.id,
+      },
+    });
+
+    // --------------------------------------------------------
+    // Prepare Google Maps URL
+    // --------------------------------------------------------
+
+    let computedMapUrl = mapUrl || null;
+
+    if (!computedMapUrl && latitude != null && longitude != null) {
+      computedMapUrl =
+        `https://www.google.com/maps/dir/?api=1&destination=` +
+        `${latitude},${longitude}`;
+    }
+
+    if (!computedMapUrl) {
+      computedMapUrl =
+        `https://www.google.com/maps/dir/?api=1&destination=` +
+        `${encodeURIComponent(
+          `${cleanHouseFlat}, ${cleanStreetArea}, ${cleanCity}, ${cleanState} ${cleanPincode}`
+        )}`;
+    }
+
+    // --------------------------------------------------------
+    // Convert coordinates safely
+    // --------------------------------------------------------
+
+    const parsedLatitude =
+      latitude !== undefined &&
+      latitude !== null &&
+      latitude !== ''
+        ? Number(latitude)
+        : null;
+
+    const parsedLongitude =
+      longitude !== undefined &&
+      longitude !== null &&
+      longitude !== ''
+        ? Number(longitude)
+        : null;
+
+    // --------------------------------------------------------
+    // Create address
+    // --------------------------------------------------------
 
     const newAddress = await prisma.address.create({
       data: {
         userId: req.user.id,
-        fullName,
-        mobileNumber,
-        houseFlat,
-        streetArea,
-        city,
-        state,
-        pincode,
-        latitude: latitude ? parseFloat(latitude) : null,
-        longitude: longitude ? parseFloat(longitude) : null,
+
+        fullName: cleanFullName,
+        mobileNumber: cleanMobileNumber,
+        houseFlat: cleanHouseFlat,
+        streetArea: cleanStreetArea,
+        city: cleanCity,
+        state: cleanState,
+        pincode: cleanPincode,
+
+        latitude:
+          parsedLatitude !== null && Number.isFinite(parsedLatitude)
+            ? parsedLatitude
+            : null,
+
+        longitude:
+          parsedLongitude !== null && Number.isFinite(parsedLongitude)
+            ? parsedLongitude
+            : null,
+
         mapUrl: computedMapUrl,
-        isDefault: isDefault || addressCount === 0,
+
+        isDefault: Boolean(isDefault) || addressCount === 0,
       },
     });
 
-    return res.status(201).json({ success: true, message: 'Address saved successfully', data: newAddress });
+    // --------------------------------------------------------
+    // Success response
+    // --------------------------------------------------------
+
+    return res.status(201).json({
+      success: true,
+      message: 'Address saved successfully',
+      data: newAddress,
+    });
   } catch (error) {
-    console.error('Add address error:', error);
-    return res.status(500).json({ success: false, message: 'Failed to save address' });
+    // Detailed server-side logging for Render debugging
+    console.error('======================================');
+    console.error('ADD ADDRESS ERROR');
+    console.error('======================================');
+    console.error('Error name:', error?.name);
+    console.error('Error code:', error?.code);
+    console.error('Error message:', error?.message);
+    console.error('Error meta:', error?.meta);
+    console.error('Full error:', error);
+    console.error('======================================');
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to save address',
+    });
   }
 }
+
+// ============================================================
+// DELETE USER ADDRESS
+// ============================================================
 
 // DELETE /api/addresses/:id
 async function deleteAddress(req, res) {
@@ -153,20 +344,42 @@ async function deleteAddress(req, res) {
     const { id } = req.params;
 
     const address = await prisma.address.findFirst({
-      where: { id, userId: req.user.id },
+      where: {
+        id,
+        userId: req.user.id,
+      },
     });
 
     if (!address) {
-      return res.status(404).json({ success: false, message: 'Address not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Address not found',
+      });
     }
 
-    await prisma.address.delete({ where: { id } });
+    await prisma.address.delete({
+      where: {
+        id,
+      },
+    });
 
-    return res.json({ success: true, message: 'Address deleted successfully' });
+    return res.json({
+      success: true,
+      message: 'Address deleted successfully',
+    });
   } catch (error) {
-    return res.status(500).json({ success: false, message: 'Failed to delete address' });
+    console.error('Delete address error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete address',
+    });
   }
 }
+
+// ============================================================
+// EXPORTS
+// ============================================================
 
 module.exports = {
   checkPincode,
