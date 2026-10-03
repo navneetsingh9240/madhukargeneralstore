@@ -161,68 +161,78 @@ async function createProduct(req, res) {
       Math.round(((mrp - sellingPrice) / mrp) * 100)
     );
 
-    const product = await prisma.$transaction(async (tx) => {
-      const newProduct = await tx.product.create({
-        data: {
-          name,
-          slug,
-          sku,
-          unit,
-          mrp: parseFloat(mrp),
-          sellingPrice: parseFloat(sellingPrice),
-          discountPercent,
-          categoryId,
-          brandId: brandId || null,
-          description: description || null,
-          isFeatured: !!isFeatured,
+    // ----------------------------------------------------------
+    // Product + Inventory transaction
+    // Increased timeout for Render -> Aiven MySQL latency.
+    // ----------------------------------------------------------
+    const product = await prisma.$transaction(
+      async (tx) => {
+        const newProduct = await tx.product.create({
+          data: {
+            name,
+            slug,
+            sku,
+            unit,
+            mrp: parseFloat(mrp),
+            sellingPrice: parseFloat(sellingPrice),
+            discountPercent,
+            categoryId,
+            brandId: brandId || null,
+            description: description || null,
+            isFeatured: !!isFeatured,
 
-          images: {
-            create: imageUrl
-              ? [
-                  {
-                    url: imageUrl,
-                    isPrimary: true,
-                  },
-                ]
-              : [
-                  {
-                    url: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500&q=80',
-                    isPrimary: true,
-                  },
-                ],
+            images: {
+              create: imageUrl
+                ? [
+                    {
+                      url: imageUrl,
+                      isPrimary: true,
+                    },
+                  ]
+                : [
+                    {
+                      url: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500&q=80',
+                      isPrimary: true,
+                    },
+                  ],
+            },
           },
-        },
-      });
+        });
 
-      const parsedStock = parseInt(stock);
+        const parsedStock = parseInt(stock, 10);
 
-      const stockStatus =
-        parsedStock === 0
-          ? 'OUT_OF_STOCK'
-          : parsedStock <= 5
-            ? 'LOW_STOCK'
-            : 'IN_STOCK';
+        const stockStatus =
+          parsedStock === 0
+            ? 'OUT_OF_STOCK'
+            : parsedStock <= 5
+              ? 'LOW_STOCK'
+              : 'IN_STOCK';
 
-      await tx.inventory.create({
-        data: {
-          productId: newProduct.id,
-          currentStock: parsedStock,
-          lowStockThreshold: 5,
-          status: stockStatus,
-        },
-      });
+        await tx.inventory.create({
+          data: {
+            productId: newProduct.id,
+            currentStock: parsedStock,
+            lowStockThreshold: 5,
+            status: stockStatus,
+          },
+        });
 
-      return await tx.product.findUnique({
-        where: {
-          id: newProduct.id,
-        },
-        include: {
-          category: true,
-          inventory: true,
-          images: true,
-        },
-      });
-    });
+        return await tx.product.findUnique({
+          where: {
+            id: newProduct.id,
+          },
+          include: {
+            category: true,
+            inventory: true,
+            images: true,
+          },
+        });
+      },
+      {
+        maxWait: 10000,
+        timeout: 30000,
+      }
+    );
 
     return res.status(201).json({
       success: true,
@@ -352,7 +362,7 @@ async function updateProduct(req, res) {
       }
 
       if (stock !== undefined) {
-        const parsedStock = parseInt(stock);
+        const parsedStock = parseInt(stock, 10);
 
         const stockStatus =
           parsedStock === 0
