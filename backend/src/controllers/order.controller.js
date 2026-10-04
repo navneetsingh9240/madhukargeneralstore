@@ -169,27 +169,31 @@ async function createOrder(req, res) {
     // --------------------------------------------------------
     // Find Delivery Area
     // --------------------------------------------------------
+    // IMPORTANT:
+    // Customer-entered PIN codes are NEVER auto-created.
+    // Only PIN codes added by Admin are allowed for delivery.
+    // --------------------------------------------------------
 
-    let deliveryArea = await prisma.deliveryArea.findUnique({
+    const deliveryArea = await prisma.deliveryArea.findUnique({
       where: {
         pincode,
       },
     });
 
+    // --------------------------------------------------------
+    // PIN code is not configured by Admin
+    // --------------------------------------------------------
+
     if (!deliveryArea) {
-      deliveryArea = await prisma.deliveryArea.create({
-        data: {
-          pincode,
-          area: address.streetArea || 'Standard Area',
-          city: address.city || 'Standard City',
-          state: address.state || 'Standard State',
-          deliveryCharge: 30,
-          minimumOrderAmount: 50,
-          estimatedDeliveryTime: 'Same Day / Next Day Delivery',
-          isActive: true,
-        },
+      return res.status(400).json({
+        success: false,
+        message: `Pincode ${pincode} is not available for delivery. Please enter a serviceable delivery address.`,
       });
     }
+
+    // --------------------------------------------------------
+    // PIN code exists but Admin has disabled delivery
+    // --------------------------------------------------------
 
     if (!deliveryArea.isActive) {
       return res.status(400).json({
@@ -726,6 +730,7 @@ async function createOrder(req, res) {
       // ======================================================
       // IMPORTANT TRANSACTION OPTIONS
       // ======================================================
+
       {
         maxWait: 10000,
         timeout: 60000,
