@@ -680,7 +680,118 @@ async function updateProduct(req, res) {
   }
 }
 
-/// ============================================================
+// ============================================================
+// DELIVERY AREA MANAGEMENT
+// ============================================================
+
+// GET /api/admin/delivery-areas
+async function getAdminDeliveryAreas(req, res) {
+  try {
+    const areas =
+      await prisma.deliveryArea.findMany({
+        orderBy: {
+          pincode: 'asc',
+        },
+      });
+
+    return res.json({
+      success: true,
+      data: areas,
+    });
+  } catch (error) {
+    console.error(
+      'Get admin delivery areas error:',
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        'Failed to fetch delivery areas',
+    });
+  }
+}
+
+// POST /api/admin/delivery-areas
+async function addDeliveryArea(req, res) {
+  try {
+    const {
+      pincode,
+      area,
+      city,
+      state,
+      deliveryCharge = 30,
+      minimumOrderAmount = 100,
+      estimatedDeliveryTime =
+        'Same Day Delivery',
+    } = req.body;
+
+    if (
+      !pincode ||
+      !/^\d{6}$/.test(pincode) ||
+      !area ||
+      !city ||
+      !state
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Valid 6-digit PIN code, area, city, and state are required',
+      });
+    }
+
+    const existing =
+      await prisma.deliveryArea.findUnique({
+        where: {
+          pincode,
+        },
+      });
+
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message:
+          `PIN code ${pincode} already exists in delivery network`,
+      });
+    }
+
+    const newArea =
+      await prisma.deliveryArea.create({
+        data: {
+          pincode,
+          area,
+          city,
+          state,
+          deliveryCharge:
+            parseFloat(deliveryCharge),
+          minimumOrderAmount:
+            parseFloat(
+              minimumOrderAmount
+            ),
+          estimatedDeliveryTime,
+        },
+      });
+
+    return res.status(201).json({
+      success: true,
+      message:
+        'Delivery PIN code area added successfully',
+      data: newArea,
+    });
+  } catch (error) {
+    console.error(
+      'Add delivery area error:',
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        'Failed to add delivery area',
+    });
+  }
+}
+// ============================================================
 // UPDATE DELIVERY AREA
 // ============================================================
 
