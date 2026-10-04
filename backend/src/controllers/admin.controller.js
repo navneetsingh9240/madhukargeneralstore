@@ -146,6 +146,29 @@ async function createProduct(req, res) {
       });
     }
 
+    const parsedMrp = parseFloat(mrp);
+    const parsedSellingPrice = parseFloat(sellingPrice);
+    const parsedStock = parseInt(stock, 10);
+
+    if (
+      !Number.isFinite(parsedMrp) ||
+      !Number.isFinite(parsedSellingPrice) ||
+      parsedMrp <= 0 ||
+      parsedSellingPrice < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'MRP and selling price must be valid numbers',
+      });
+    }
+
+    if (!Number.isFinite(parsedStock) || parsedStock < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Stock must be a valid non-negative number',
+      });
+    }
+
     const slug =
       name
         .toLowerCase()
@@ -158,13 +181,25 @@ async function createProduct(req, res) {
 
     const discountPercent = Math.max(
       0,
-      Math.round(((mrp - sellingPrice) / mrp) * 100)
+      Math.round(
+        ((parsedMrp - parsedSellingPrice) / parsedMrp) * 100
+      )
     );
+
+    const stockStatus =
+      parsedStock === 0
+        ? 'OUT_OF_STOCK'
+        : parsedStock <= 5
+          ? 'LOW_STOCK'
+          : 'IN_STOCK';
 
     // ----------------------------------------------------------
     // Product + Inventory transaction
-    // Increased timeout for Render -> Aiven MySQL latency.
+    //
+    // Keep the transaction short.
+    // Complete product is fetched AFTER transaction commit.
     // ----------------------------------------------------------
+
     const product = await prisma.$transaction(
       async (tx) => {
         const newProduct = await tx.product.create({
@@ -173,8 +208,8 @@ async function createProduct(req, res) {
             slug,
             sku,
             unit,
-            mrp: parseFloat(mrp),
-            sellingPrice: parseFloat(sellingPrice),
+            mrp: parsedMrp,
+            sellingPrice: parsedSellingPrice,
             discountPercent,
             categoryId,
             brandId: brandId || null,
@@ -199,15 +234,6 @@ async function createProduct(req, res) {
           },
         });
 
-        const parsedStock = parseInt(stock, 10);
-
-        const stockStatus =
-          parsedStock === 0
-            ? 'OUT_OF_STOCK'
-            : parsedStock <= 5
-              ? 'LOW_STOCK'
-              : 'IN_STOCK';
-
         await tx.inventory.create({
           data: {
             productId: newProduct.id,
@@ -217,27 +243,35 @@ async function createProduct(req, res) {
           },
         });
 
-        return await tx.product.findUnique({
-          where: {
-            id: newProduct.id,
-          },
-          include: {
-            category: true,
-            inventory: true,
-            images: true,
-          },
-        });
+        // Only return the created product.
+        // Do NOT run findUnique inside the transaction.
+        return newProduct;
       },
       {
         maxWait: 10000,
-        timeout: 30000,
+        timeout: 60000,
       }
     );
+
+    // ----------------------------------------------------------
+    // Fetch complete product AFTER transaction is committed.
+    // ----------------------------------------------------------
+
+    const completeProduct = await prisma.product.findUnique({
+      where: {
+        id: product.id,
+      },
+      include: {
+        category: true,
+        inventory: true,
+        images: true,
+      },
+    });
 
     return res.status(201).json({
       success: true,
       message: 'Product created successfully',
-      data: product,
+      data: completeProduct,
     });
   } catch (error) {
     console.error('Create product error:', error);
@@ -248,6 +282,10 @@ async function createProduct(req, res) {
     });
   }
 }
+
+// ============================================================
+// UPDATE PRODUCT
+// ============================================================
 
 // PUT /api/admin/products/:id
 async function updateProduct(req, res) {
@@ -267,6 +305,10 @@ async function updateProduct(req, res) {
       stock,
       imageUrl,
     } = req.body;
+
+    // ----------------------------------------------------------
+    // Find existing product BEFORE transaction.
+    // ----------------------------------------------------------
 
     const existingProduct = await prisma.product.findFirst({
       where: {
@@ -292,125 +334,348 @@ async function updateProduct(req, res) {
     }
 
     const productId = existingProduct.id;
+
     const dataToUpdate = {};
 
-    if (name) {
+    // ----------------------------------------------------------
+    // PRODUCT NAME
+    // ----------------------------------------------------------
+
+    if (name !== undefined) {
       dataToUpdate.name = name;
     }
 
-    if (unit) {
+    // ----------------------------------------------------------
+    // UNIT
+    // ----------------------------------------------------------
+
+    if (unit !== undefined) {
       dataToUpdate.unit = unit;
     }
 
-    if (mrp) {
-      dataToUpdate.mrp = parseFloat(mrp);
+    // ----------------------------------------------------------
+    // MRP
+    // ----------------------------------------------------------
+
+    if (mrp !== undefined && mrp !== '') {
+      const parsedMrp = parseFloat(mrp);
+
+      if (
+        Number.isFinite(parsedMrp) &&
+        parsedMrp > 0
+      ) {
+        dataToUpdate.mrp = parsedMrp;
+      }
     }
 
-    if (sellingPrice) {
-      dataToUpdate.sellingPrice = parseFloat(sellingPrice);
+    // ----------------------------------------------------------
+    // SELLING PRICE
+    // ----------------------------------------------------------
+
+    if (
+      sellingPrice !== undefined &&
+      sellingPrice !== ''
+    ) {
+      const parsedSellingPrice =
+        parseFloat(sellingPrice);
+
+      if (
+        Number.isFinite(parsedSellingPrice) &&
+        parsedSellingPrice >= 0
+      ) {
+        dataToUpdate.sellingPrice =
+          parsedSellingPrice;
+      }
     }
 
-    if (categoryId) {
-      dataToUpdate.categoryId = categoryId;
+    // ----------------------------------------------------------
+    // CATEGORY
+    // ----------------------------------------------------------
+
+    if (categoryId !== undefined) {
+      dataToUpdate.categoryId =
+        categoryId || null;
     }
+
+    // ----------------------------------------------------------
+    // BRAND
+    // ----------------------------------------------------------
 
     if (brandId !== undefined) {
-      dataToUpdate.brandId = brandId || null;
+      dataToUpdate.brandId =
+        brandId || null;
     }
+
+    // ----------------------------------------------------------
+    // DESCRIPTION
+    // ----------------------------------------------------------
 
     if (description !== undefined) {
-      dataToUpdate.description = description;
+      dataToUpdate.description =
+        description || null;
     }
+
+    // ----------------------------------------------------------
+    // FEATURED
+    // ----------------------------------------------------------
 
     if (isFeatured !== undefined) {
-      dataToUpdate.isFeatured = !!isFeatured;
+      dataToUpdate.isFeatured =
+        !!isFeatured;
     }
+
+    // ----------------------------------------------------------
+    // ACTIVE
+    // ----------------------------------------------------------
 
     if (isActive !== undefined) {
-      dataToUpdate.isActive = !!isActive;
+      dataToUpdate.isActive =
+        !!isActive;
     }
 
-    if (mrp && sellingPrice) {
-      dataToUpdate.discountPercent = Math.max(
-        0,
-        Math.round(((mrp - sellingPrice) / mrp) * 100)
-      );
+    // ----------------------------------------------------------
+    // FINAL MRP
+    // ----------------------------------------------------------
+
+    const finalMrp =
+      mrp !== undefined && mrp !== ''
+        ? parseFloat(mrp)
+        : Number(existingProduct.mrp);
+
+    // ----------------------------------------------------------
+    // FINAL SELLING PRICE
+    // ----------------------------------------------------------
+
+    const finalSellingPrice =
+      sellingPrice !== undefined &&
+      sellingPrice !== ''
+        ? parseFloat(sellingPrice)
+        : Number(
+            existingProduct.sellingPrice
+          );
+
+    // ----------------------------------------------------------
+    // DISCOUNT PERCENTAGE
+    // ----------------------------------------------------------
+
+    if (
+      Number.isFinite(finalMrp) &&
+      Number.isFinite(finalSellingPrice) &&
+      finalMrp > 0
+    ) {
+      dataToUpdate.discountPercent =
+        Math.max(
+          0,
+          Math.round(
+            (
+              (finalMrp -
+                finalSellingPrice) /
+              finalMrp
+            ) * 100
+          )
+        );
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
-      await tx.product.update({
+    // ----------------------------------------------------------
+    // PRODUCT + IMAGE + INVENTORY TRANSACTION
+    //
+    // IMPORTANT:
+    //
+    // Old code:
+    //
+    // transaction
+    //   -> product update
+    //   -> image update
+    //   -> inventory update
+    //   -> product.findUnique()
+    //
+    // The final findUnique() inside the transaction could make
+    // Render -> Aiven exceed Prisma's default 5 second timeout.
+    //
+    // New code:
+    //
+    // transaction
+    //   -> product update
+    //   -> image update
+    //   -> inventory update
+    // COMMIT
+    //
+    // Then:
+    // product.findUnique()
+    //
+    // This keeps the transaction short.
+    // ----------------------------------------------------------
+
+    await prisma.$transaction(
+      async (tx) => {
+        // ------------------------------------------------------
+        // 1. UPDATE PRODUCT
+        // ------------------------------------------------------
+
+        await tx.product.update({
+          where: {
+            id: productId,
+          },
+          data: dataToUpdate,
+        });
+
+        // ------------------------------------------------------
+        // 2. UPDATE PRODUCT IMAGE
+        //
+        // Only update image when frontend actually sends
+        // a new non-empty image URL.
+        // ------------------------------------------------------
+
+        if (
+          imageUrl !== undefined &&
+          imageUrl !== null &&
+          imageUrl !== ''
+        ) {
+          await tx.productImage.deleteMany({
+            where: {
+              productId,
+            },
+          });
+
+          await tx.productImage.create({
+            data: {
+              productId,
+              url: imageUrl,
+              isPrimary: true,
+            },
+          });
+        }
+
+        // ------------------------------------------------------
+        // 3. UPDATE INVENTORY
+        // ------------------------------------------------------
+
+        if (stock !== undefined) {
+          const parsedStock =
+            parseInt(stock, 10);
+
+          if (
+            Number.isFinite(parsedStock) &&
+            parsedStock >= 0
+          ) {
+            const stockStatus =
+              parsedStock === 0
+                ? 'OUT_OF_STOCK'
+                : parsedStock <= 5
+                  ? 'LOW_STOCK'
+                  : 'IN_STOCK';
+
+            await tx.inventory.upsert({
+              where: {
+                productId,
+              },
+
+              update: {
+                currentStock:
+                  parsedStock,
+                status:
+                  stockStatus,
+              },
+
+              create: {
+                productId,
+                currentStock:
+                  parsedStock,
+                status:
+                  stockStatus,
+                lowStockThreshold:
+                  5,
+              },
+            });
+          }
+        }
+      },
+
+      // --------------------------------------------------------
+      // INCREASED PRISMA TRANSACTION LIMITS
+      // --------------------------------------------------------
+
+      {
+        maxWait: 10000,
+        timeout: 60000,
+      }
+    );
+
+    // ----------------------------------------------------------
+    // FETCH COMPLETE UPDATED PRODUCT
+    //
+    // This query is deliberately OUTSIDE the transaction.
+    // ----------------------------------------------------------
+
+    const updated =
+      await prisma.product.findUnique({
         where: {
           id: productId,
         },
-        data: dataToUpdate,
-      });
 
-      if (imageUrl) {
-        await tx.productImage.deleteMany({
-          where: {
-            productId,
-          },
-        });
-
-        await tx.productImage.create({
-          data: {
-            productId,
-            url: imageUrl,
-            isPrimary: true,
-          },
-        });
-      }
-
-      if (stock !== undefined) {
-        const parsedStock = parseInt(stock, 10);
-
-        const stockStatus =
-          parsedStock === 0
-            ? 'OUT_OF_STOCK'
-            : parsedStock <= 5
-              ? 'LOW_STOCK'
-              : 'IN_STOCK';
-
-        await tx.inventory.upsert({
-          where: {
-            productId,
-          },
-          update: {
-            currentStock: parsedStock,
-            status: stockStatus,
-          },
-          create: {
-            productId,
-            currentStock: parsedStock,
-            status: stockStatus,
-            lowStockThreshold: 5,
-          },
-        });
-      }
-
-      return await tx.product.findUnique({
-        where: {
-          id: productId,
-        },
         include: {
           category: true,
           inventory: true,
           images: true,
         },
       });
-    });
 
     return res.json({
       success: true,
-      message: 'Product updated successfully',
+      message:
+        'Product updated successfully',
       data: updated,
     });
   } catch (error) {
-    console.error('Update product error:', error);
+    // ----------------------------------------------------------
+    // DETAILED ERROR LOG
+    // ----------------------------------------------------------
+
+    console.error(
+      '======================================'
+    );
+
+    console.error(
+      'UPDATE PRODUCT ERROR'
+    );
+
+    console.error(
+      '======================================'
+    );
+
+    console.error(
+      'Error name:',
+      error?.name
+    );
+
+    console.error(
+      'Error code:',
+      error?.code
+    );
+
+    console.error(
+      'Error message:',
+      error?.message
+    );
+
+    console.error(
+      'Error meta:',
+      error?.meta
+    );
+
+    console.error(
+      'Full error:',
+      error
+    );
+
+    console.error(
+      '======================================'
+    );
 
     return res.status(500).json({
       success: false,
-      message: 'Failed to update product',
+      message:
+        'Failed to update product',
     });
   }
 }
@@ -422,11 +687,12 @@ async function updateProduct(req, res) {
 // GET /api/admin/delivery-areas
 async function getAdminDeliveryAreas(req, res) {
   try {
-    const areas = await prisma.deliveryArea.findMany({
-      orderBy: {
-        pincode: 'asc',
-      },
-    });
+    const areas =
+      await prisma.deliveryArea.findMany({
+        orderBy: {
+          pincode: 'asc',
+        },
+      });
 
     return res.json({
       success: true,
@@ -435,7 +701,8 @@ async function getAdminDeliveryAreas(req, res) {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch delivery areas',
+      message:
+        'Failed to fetch delivery areas',
     });
   }
 }
@@ -450,7 +717,8 @@ async function addDeliveryArea(req, res) {
       state,
       deliveryCharge = 30,
       minimumOrderAmount = 100,
-      estimatedDeliveryTime = 'Same Day Delivery',
+      estimatedDeliveryTime =
+        'Same Day Delivery',
     } = req.body;
 
     if (
@@ -467,40 +735,49 @@ async function addDeliveryArea(req, res) {
       });
     }
 
-    const existing = await prisma.deliveryArea.findUnique({
-      where: {
-        pincode,
-      },
-    });
+    const existing =
+      await prisma.deliveryArea.findUnique({
+        where: {
+          pincode,
+        },
+      });
 
     if (existing) {
       return res.status(400).json({
         success: false,
-        message: `PIN code ${pincode} already exists in delivery network`,
+        message:
+          `PIN code ${pincode} already exists in delivery network`,
       });
     }
 
-    const newArea = await prisma.deliveryArea.create({
-      data: {
-        pincode,
-        area,
-        city,
-        state,
-        deliveryCharge: parseFloat(deliveryCharge),
-        minimumOrderAmount: parseFloat(minimumOrderAmount),
-        estimatedDeliveryTime,
-      },
-    });
+    const newArea =
+      await prisma.deliveryArea.create({
+        data: {
+          pincode,
+          area,
+          city,
+          state,
+          deliveryCharge:
+            parseFloat(deliveryCharge),
+          minimumOrderAmount:
+            parseFloat(
+              minimumOrderAmount
+            ),
+          estimatedDeliveryTime,
+        },
+      });
 
     return res.status(201).json({
       success: true,
-      message: 'Delivery PIN code area added successfully',
+      message:
+        'Delivery PIN code area added successfully',
       data: newArea,
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Failed to add delivery area',
+      message:
+        'Failed to add delivery area',
     });
   }
 }
@@ -525,23 +802,30 @@ async function updateOrderStatus(req, res) {
       'REFUNDED',
     ];
 
-    if (!validStatuses.includes(orderStatus)) {
+    if (
+      !validStatuses.includes(
+        orderStatus
+      )
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid order status',
+        message:
+          'Invalid order status',
       });
     }
 
-    const targetOrder = await prisma.order.findUnique({
-      where: {
-        id,
-      },
-    });
+    const targetOrder =
+      await prisma.order.findUnique({
+        where: {
+          id,
+        },
+      });
 
     if (!targetOrder) {
       return res.status(404).json({
         success: false,
-        message: 'Order not found',
+        message:
+          'Order not found',
       });
     }
 
@@ -549,26 +833,32 @@ async function updateOrderStatus(req, res) {
       orderStatus,
     };
 
-    if (orderStatus === 'DELIVERED') {
-      updateData.paymentStatus = 'COMPLETED';
+    if (
+      orderStatus === 'DELIVERED'
+    ) {
+      updateData.paymentStatus =
+        'COMPLETED';
     }
 
-    const updated = await prisma.order.update({
-      where: {
-        id,
-      },
-      data: updateData,
-    });
+    const updated =
+      await prisma.order.update({
+        where: {
+          id,
+        },
+        data: updateData,
+      });
 
     return res.json({
       success: true,
-      message: `Order #${updated.orderNumber} status updated to ${orderStatus}`,
+      message:
+        `Order #${updated.orderNumber} status updated to ${orderStatus}`,
       data: updated,
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Failed to update order status',
+      message:
+        'Failed to update order status',
     });
   }
 }
@@ -576,32 +866,33 @@ async function updateOrderStatus(req, res) {
 // GET /api/admin/orders
 async function getAdminOrders(req, res) {
   try {
-    const orders = await prisma.order.findMany({
-      include: {
-        user: {
-          select: {
-            name: true,
-            email: true,
-            phone: true,
+    const orders =
+      await prisma.order.findMany({
+        include: {
+          user: {
+            select: {
+              name: true,
+              email: true,
+              phone: true,
+            },
           },
+
+          address: true,
+
+          invoice: {
+            select: {
+              invoiceNumber: true,
+              qrToken: true,
+            },
+          },
+
+          items: true,
         },
 
-        address: true,
-
-        invoice: {
-          select: {
-            invoiceNumber: true,
-            qrToken: true,
-          },
+        orderBy: {
+          createdAt: 'desc',
         },
-
-        items: true,
-      },
-
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+      });
 
     return res.json({
       success: true,
@@ -610,7 +901,8 @@ async function getAdminOrders(req, res) {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch admin orders',
+      message:
+        'Failed to fetch admin orders',
     });
   }
 }
@@ -622,27 +914,28 @@ async function getAdminOrders(req, res) {
 // GET /api/admin/invoices
 async function getAdminInvoices(req, res) {
   try {
-    const invoices = await prisma.invoice.findMany({
-      include: {
-        order: {
-          include: {
-            user: {
-              select: {
-                name: true,
-                email: true,
+    const invoices =
+      await prisma.invoice.findMany({
+        include: {
+          order: {
+            include: {
+              user: {
+                select: {
+                  name: true,
+                  email: true,
+                },
               },
-            },
 
-            address: true,
-            items: true,
+              address: true,
+              items: true,
+            },
           },
         },
-      },
 
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
 
     return res.json({
       success: true,
@@ -651,7 +944,8 @@ async function getAdminInvoices(req, res) {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch admin invoices',
+      message:
+        'Failed to fetch admin invoices',
     });
   }
 }
@@ -663,11 +957,12 @@ async function getAdminInvoices(req, res) {
 // GET /api/admin/coupons
 async function getAdminCoupons(req, res) {
   try {
-    const coupons = await prisma.coupon.findMany({
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    const coupons =
+      await prisma.coupon.findMany({
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
 
     return res.json({
       success: true,
@@ -676,7 +971,8 @@ async function getAdminCoupons(req, res) {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch admin coupons',
+      message:
+        'Failed to fetch admin coupons',
     });
   }
 }
@@ -694,55 +990,81 @@ async function createCoupon(req, res) {
       expiresAt,
     } = req.body;
 
-    if (!code || !discountAmount) {
+    if (
+      !code ||
+      !discountAmount
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Coupon code and discount amount are required',
+        message:
+          'Coupon code and discount amount are required',
       });
     }
 
-    const couponCode = code.toUpperCase().trim();
+    const couponCode =
+      code.toUpperCase().trim();
 
-    const existing = await prisma.coupon.findUnique({
-      where: {
-        code: couponCode,
-      },
-    });
+    const existing =
+      await prisma.coupon.findUnique({
+        where: {
+          code: couponCode,
+        },
+      });
 
     if (existing) {
       return res.status(400).json({
         success: false,
-        message: `Coupon ${couponCode} already exists`,
+        message:
+          `Coupon ${couponCode} already exists`,
       });
     }
 
-    const coupon = await prisma.coupon.create({
-      data: {
-        code: couponCode,
-        description: description || null,
-        discountType: discountType || 'PERCENTAGE',
-        discountAmount: parseFloat(discountAmount),
-        minOrderAmount: parseFloat(minOrderAmount || 0),
-        maxDiscount: maxDiscount
-          ? parseFloat(maxDiscount)
-          : null,
-        expiresAt: expiresAt
-          ? new Date(expiresAt)
-          : null,
-      },
-    });
+    const coupon =
+      await prisma.coupon.create({
+        data: {
+          code: couponCode,
+          description:
+            description || null,
+          discountType:
+            discountType ||
+            'PERCENTAGE',
+          discountAmount:
+            parseFloat(
+              discountAmount
+            ),
+          minOrderAmount:
+            parseFloat(
+              minOrderAmount || 0
+            ),
+          maxDiscount:
+            maxDiscount
+              ? parseFloat(
+                  maxDiscount
+                )
+              : null,
+          expiresAt:
+            expiresAt
+              ? new Date(expiresAt)
+              : null,
+        },
+      });
 
     return res.status(201).json({
       success: true,
-      message: 'Coupon created successfully',
+      message:
+        'Coupon created successfully',
       data: coupon,
     });
   } catch (error) {
-    console.error('Create coupon error:', error);
+    console.error(
+      'Create coupon error:',
+      error
+    );
 
     return res.status(500).json({
       success: false,
-      message: 'Failed to create coupon',
+      message:
+        'Failed to create coupon',
     });
   }
 }
@@ -752,39 +1074,47 @@ async function toggleCoupon(req, res) {
   try {
     const { id } = req.params;
 
-    const coupon = await prisma.coupon.findUnique({
-      where: {
-        id,
-      },
-    });
+    const coupon =
+      await prisma.coupon.findUnique({
+        where: {
+          id,
+        },
+      });
 
     if (!coupon) {
       return res.status(404).json({
         success: false,
-        message: 'Coupon not found',
+        message:
+          'Coupon not found',
       });
     }
 
-    const updated = await prisma.coupon.update({
-      where: {
-        id,
-      },
-      data: {
-        isActive: !coupon.isActive,
-      },
-    });
+    const updated =
+      await prisma.coupon.update({
+        where: {
+          id,
+        },
+        data: {
+          isActive:
+            !coupon.isActive,
+        },
+      });
 
     return res.json({
       success: true,
-      message: `Coupon status changed to ${
-        updated.isActive ? 'Active' : 'Inactive'
-      }`,
+      message:
+        `Coupon status changed to ${
+          updated.isActive
+            ? 'Active'
+            : 'Inactive'
+        }`,
       data: updated,
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Failed to update coupon status',
+      message:
+        'Failed to update coupon status',
     });
   }
 }
@@ -796,30 +1126,31 @@ async function toggleCoupon(req, res) {
 // GET /api/admin/customers
 async function getAdminCustomers(req, res) {
   try {
-    const customers = await prisma.user.findMany({
-      where: {
-        role: 'CUSTOMER',
-      },
+    const customers =
+      await prisma.user.findMany({
+        where: {
+          role: 'CUSTOMER',
+        },
 
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        createdAt: true,
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          createdAt: true,
 
-        _count: {
-          select: {
-            orders: true,
-            addresses: true,
+          _count: {
+            select: {
+              orders: true,
+              addresses: true,
+            },
           },
         },
-      },
 
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
 
     return res.json({
       success: true,
@@ -828,7 +1159,8 @@ async function getAdminCustomers(req, res) {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch customer list',
+      message:
+        'Failed to fetch customer list',
     });
   }
 }
@@ -840,22 +1172,27 @@ async function getAdminCustomers(req, res) {
 // GET /api/admin/categories
 async function getAdminCategories(req, res) {
   try {
-    const categories = await prisma.category.findMany({
-      orderBy: {
-        name: 'asc',
-      },
-    });
+    const categories =
+      await prisma.category.findMany({
+        orderBy: {
+          name: 'asc',
+        },
+      });
 
     return res.json({
       success: true,
       data: categories,
     });
   } catch (error) {
-    console.error('Get admin categories error:', error);
+    console.error(
+      'Get admin categories error:',
+      error
+    );
 
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch categories',
+      message:
+        'Failed to fetch categories',
     });
   }
 }
@@ -869,81 +1206,110 @@ async function createCategory(req, res) {
       imageUrl,
     } = req.body;
 
-    if (!name || !String(name).trim()) {
+    if (
+      !name ||
+      !String(name).trim()
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Category name is required',
+        message:
+          'Category name is required',
       });
     }
 
-    const cleanName = String(name).trim();
+    const cleanName =
+      String(name).trim();
 
-    const generatedSlug = slug
-      ? String(slug)
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/(^-|-$)+/g, '')
-      : cleanName
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/(^-|-$)+/g, '');
+    const generatedSlug =
+      slug
+        ? String(slug)
+            .trim()
+            .toLowerCase()
+            .replace(
+              /[^a-z0-9]+/g,
+              '-'
+            )
+            .replace(
+              /(^-|-$)+/g,
+              ''
+            )
+        : cleanName
+            .toLowerCase()
+            .replace(
+              /[^a-z0-9]+/g,
+              '-'
+            )
+            .replace(
+              /(^-|-$)+/g,
+              '');
 
     if (!generatedSlug) {
       return res.status(400).json({
         success: false,
-        message: 'A valid category slug could not be generated',
+        message:
+          'A valid category slug could not be generated',
       });
     }
 
-    const existingName = await prisma.category.findFirst({
-      where: {
-        name: cleanName,
-      },
-    });
+    const existingName =
+      await prisma.category.findFirst({
+        where: {
+          name: cleanName,
+        },
+      });
 
     if (existingName) {
       return res.status(400).json({
         success: false,
-        message: 'Category with this name already exists',
+        message:
+          'Category with this name already exists',
       });
     }
 
-    const existingSlug = await prisma.category.findUnique({
-      where: {
-        slug: generatedSlug,
-      },
-    });
+    const existingSlug =
+      await prisma.category.findUnique({
+        where: {
+          slug: generatedSlug,
+        },
+      });
 
     if (existingSlug) {
       return res.status(400).json({
         success: false,
-        message: 'Category with this slug already exists',
+        message:
+          'Category with this slug already exists',
       });
     }
 
-    const category = await prisma.category.create({
-      data: {
-        name: cleanName,
-        slug: generatedSlug,
+    const category =
+      await prisma.category.create({
+        data: {
+          name: cleanName,
+          slug: generatedSlug,
 
-        // Category image is optional.
-        // Base64/data URL is stored in the LongText field.
-        imageUrl: imageUrl || null,
-      },
-    });
+          // Category image is optional.
+          // Base64/data URL is stored in the LongText field.
+          imageUrl:
+            imageUrl || null,
+        },
+      });
 
     return res.status(201).json({
       success: true,
-      message: 'Category created successfully',
+      message:
+        'Category created successfully',
       data: category,
     });
   } catch (error) {
-    console.error('Create category error:', error);
+    console.error(
+      'Create category error:',
+      error
+    );
 
     return res.status(500).json({
       success: false,
-      message: 'Failed to create category',
+      message:
+        'Failed to create category',
     });
   }
 }
@@ -959,75 +1325,98 @@ async function updateCategory(req, res) {
       imageUrl,
     } = req.body;
 
-    if (!name || !String(name).trim()) {
+    if (
+      !name ||
+      !String(name).trim()
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Category name is required',
+        message:
+          'Category name is required',
       });
     }
 
-    const cleanName = String(name).trim();
+    const cleanName =
+      String(name).trim();
 
-    const generatedSlug = slug
-      ? String(slug)
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/(^-|-$)+/g, '')
-      : cleanName
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/(^-|-$)+/g, '');
+    const generatedSlug =
+      slug
+        ? String(slug)
+            .trim()
+            .toLowerCase()
+            .replace(
+              /[^a-z0-9]+/g,
+              '-'
+            )
+            .replace(
+              /(^-|-$)+/g,
+              '')
+        : cleanName
+            .toLowerCase()
+            .replace(
+              /[^a-z0-9]+/g,
+              '-'
+            )
+            .replace(
+              /(^-|-$)+/g,
+              '');
 
     if (!generatedSlug) {
       return res.status(400).json({
         success: false,
-        message: 'A valid category slug could not be generated',
+        message:
+          'A valid category slug could not be generated',
       });
     }
 
-    const existingCategory = await prisma.category.findUnique({
-      where: {
-        id,
-      },
-    });
+    const existingCategory =
+      await prisma.category.findUnique({
+        where: {
+          id,
+        },
+      });
 
     if (!existingCategory) {
       return res.status(404).json({
         success: false,
-        message: 'Category not found',
+        message:
+          'Category not found',
       });
     }
 
-    const duplicateName = await prisma.category.findFirst({
-      where: {
-        name: cleanName,
-        NOT: {
-          id,
+    const duplicateName =
+      await prisma.category.findFirst({
+        where: {
+          name: cleanName,
+          NOT: {
+            id,
+          },
         },
-      },
-    });
+      });
 
     if (duplicateName) {
       return res.status(400).json({
         success: false,
-        message: 'Another category with this name already exists',
+        message:
+          'Another category with this name already exists',
       });
     }
 
-    const duplicateSlug = await prisma.category.findFirst({
-      where: {
-        slug: generatedSlug,
-        NOT: {
-          id,
+    const duplicateSlug =
+      await prisma.category.findFirst({
+        where: {
+          slug: generatedSlug,
+          NOT: {
+            id,
+          },
         },
-      },
-    });
+      });
 
     if (duplicateSlug) {
       return res.status(400).json({
         success: false,
-        message: 'Another category with this slug already exists',
+        message:
+          'Another category with this slug already exists',
       });
     }
 
@@ -1046,33 +1435,41 @@ async function updateCategory(req, res) {
      * imageUrl: null            -> remove image
      * imageUrl not provided     -> keep existing image
      */
+
     if (
       Object.prototype.hasOwnProperty.call(
         req.body,
         'imageUrl'
       )
     ) {
-      dataToUpdate.imageUrl = imageUrl || null;
+      dataToUpdate.imageUrl =
+        imageUrl || null;
     }
 
-    const updatedCategory = await prisma.category.update({
-      where: {
-        id,
-      },
-      data: dataToUpdate,
-    });
+    const updatedCategory =
+      await prisma.category.update({
+        where: {
+          id,
+        },
+        data: dataToUpdate,
+      });
 
     return res.json({
       success: true,
-      message: 'Category updated successfully',
+      message:
+        'Category updated successfully',
       data: updatedCategory,
     });
   } catch (error) {
-    console.error('Update category error:', error);
+    console.error(
+      'Update category error:',
+      error
+    );
 
     return res.status(500).json({
       success: false,
-      message: 'Failed to update category',
+      message:
+        'Failed to update category',
     });
   }
 }
@@ -1082,31 +1479,35 @@ async function deleteCategory(req, res) {
   try {
     const { id } = req.params;
 
-    const category = await prisma.category.findUnique({
-      where: {
-        id,
-      },
-    });
+    const category =
+      await prisma.category.findUnique({
+        where: {
+          id,
+        },
+      });
 
     if (!category) {
       return res.status(404).json({
         success: false,
-        message: 'Category not found',
+        message:
+          'Category not found',
       });
     }
 
     // Do not allow deleting a category that is already
     // being used by products.
-    const productCount = await prisma.product.count({
-      where: {
-        categoryId: id,
-      },
-    });
+    const productCount =
+      await prisma.product.count({
+        where: {
+          categoryId: id,
+        },
+      });
 
     if (productCount > 0) {
       return res.status(400).json({
         success: false,
-        message: `Cannot delete this category because ${productCount} product(s) are using it. Please move or remove those products first.`,
+        message:
+          `Cannot delete this category because ${productCount} product(s) are using it. Please move or remove those products first.`,
       });
     }
 
@@ -1118,14 +1519,19 @@ async function deleteCategory(req, res) {
 
     return res.json({
       success: true,
-      message: 'Category deleted successfully',
+      message:
+        'Category deleted successfully',
     });
   } catch (error) {
-    console.error('Delete category error:', error);
+    console.error(
+      'Delete category error:',
+      error
+    );
 
     return res.status(500).json({
       success: false,
-      message: 'Failed to delete category',
+      message:
+        'Failed to delete category',
     });
   }
 }
