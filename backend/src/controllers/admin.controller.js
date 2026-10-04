@@ -1716,6 +1716,96 @@ async function deleteCategory(req, res) {
 }
 
 // ============================================================
+// DELETE PRODUCT
+// ============================================================
+
+// DELETE /api/admin/products/:id
+async function deleteProduct(req, res) {
+  try {
+    const { id } = req.params;
+
+    // Find existing product by ID, slug, or SKU
+    const existingProduct = await prisma.product.findFirst({
+      where: {
+        OR: [
+          { id },
+          { slug: id },
+          { sku: id },
+        ],
+      },
+    });
+
+    if (!existingProduct) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found',
+      });
+    }
+
+    const productId = existingProduct.id;
+
+    // Execute atomic cleanup and deletion in a transaction
+    await prisma.$transaction(
+      async (tx) => {
+        // 1. Detach product reference from historical order items (set productId to null)
+        await tx.orderItem.updateMany({
+          where: { productId },
+          data: { productId: null },
+        });
+
+        // 2. Remove related inventory record
+        await tx.inventory.deleteMany({
+          where: { productId },
+        });
+
+        // 3. Remove related product images
+        await tx.productImage.deleteMany({
+          where: { productId },
+        });
+
+        // 4. Remove related wishlist items
+        await tx.wishlist.deleteMany({
+          where: { productId },
+        });
+
+        // 5. Remove related reviews
+        await tx.review.deleteMany({
+          where: { productId },
+        });
+
+        // 6. Delete product
+        await tx.product.delete({
+          where: { id: productId },
+        });
+      },
+      {
+        maxWait: 10000,
+        timeout: 60000,
+      }
+    );
+
+    return res.json({
+      success: true,
+      message: 'Product deleted successfully',
+    });
+  } catch (error) {
+    console.error('Delete product error:', error);
+
+    if (error?.code === 'P2025') {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found',
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: 'This product cannot be deleted because it is linked to existing records.',
+    });
+  }
+}
+
+// ============================================================
 // EXPORTS
 // ============================================================
 
@@ -1726,6 +1816,7 @@ module.exports = {
   // Products
   createProduct,
   updateProduct,
+  deleteProduct,
 
   // Delivery Areas
 getAdminDeliveryAreas,

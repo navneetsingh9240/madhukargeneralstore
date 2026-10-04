@@ -8,6 +8,7 @@ import {
   Plus,
   Search,
   Edit3,
+  Trash2,
   CheckCircle2,
   AlertTriangle,
   X,
@@ -28,6 +29,12 @@ export default function AdminProductsPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editProduct, setEditProduct] = useState(null);
   const [modalLoading, setModalLoading] = useState(false);
+
+  // Delete modal state
+  const [deleteProductTarget, setDeleteProductTarget] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [toastMessage, setToastMessage] = useState("");
 
   const [formData, setFormData] = useState({
     name: "",
@@ -313,6 +320,54 @@ export default function AdminProductsPage() {
   // UPDATE PRODUCT
   // ============================================================
 
+  // ============================================================
+  // DELETE PRODUCT
+  // ============================================================
+
+  const handleConfirmDelete = async () => {
+    if (!deleteProductTarget || deleteLoading) return;
+
+    setDeleteLoading(true);
+    setDeleteError("");
+
+    try {
+      const API_URL =
+        process.env.NEXT_PUBLIC_API_URL ||
+        "http://localhost:5000";
+
+      const res = await fetch(
+        `${API_URL}/api/admin/products/${deleteProductTarget.id}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const data = await res.json();
+
+      if (data.success) {
+        setProducts((prev) =>
+          prev.filter((p) => p.id !== deleteProductTarget.id)
+        );
+        setToastMessage(`Product "${deleteProductTarget.name}" deleted successfully.`);
+        setTimeout(() => setToastMessage(""), 5000);
+        setDeleteProductTarget(null);
+        fetchProductsAndCategories();
+      } else {
+        setDeleteError(
+          data.message || "Failed to delete product."
+        );
+      }
+    } catch (err) {
+      console.error("Delete product error:", err);
+      setDeleteError("Failed to delete product. Please try again.");
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   const handleUpdateProduct = async (e) => {
     e.preventDefault();
 
@@ -493,6 +548,17 @@ export default function AdminProductsPage() {
       ======================================================== */}
 
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+        {/* Toast Alert */}
+        {toastMessage && (
+          <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl text-xs font-extrabold flex items-center justify-between shadow-sm">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <span>{toastMessage}</span>
+            </div>
+            <button onClick={() => setToastMessage("")} className="text-emerald-600 hover:text-emerald-900 font-bold text-sm">×</button>
+          </div>
+        )}
 
         {/* Search + Summary */}
 
@@ -734,29 +800,40 @@ export default function AdminProductsPage() {
                         {/* Action */}
 
                         <td className="px-5 py-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() =>
+                                setEditProduct({
+                                  ...p,
 
-                          <button
-                            onClick={() =>
-                              setEditProduct({
-                                ...p,
+                                  // IMPORTANT:
+                                  // Load current DB inventory
+                                  // into editable stock field.
+                                  stock: Number(
+                                    p.inventory
+                                      ?.currentStock ??
+                                      p.stock ??
+                                      0
+                                  ),
+                                })
+                              }
+                              className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1 transition"
+                            >
+                              <Edit3 size={14} />
+                              Edit
+                            </button>
 
-                                // IMPORTANT:
-                                // Load current DB inventory
-                                // into editable stock field.
-                                stock: Number(
-                                  p.inventory
-                                    ?.currentStock ??
-                                    p.stock ??
-                                    0
-                                ),
-                              })
-                            }
-                            className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1 transition ml-auto"
-                          >
-                            <Edit3 size={14} />
-                            Edit
-                          </button>
-
+                            <button
+                              onClick={() => {
+                                setDeleteProductTarget(p);
+                                setDeleteError("");
+                              }}
+                              className="bg-red-50 hover:bg-red-100 text-red-600 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1 transition border border-red-200"
+                            >
+                              <Trash2 size={14} />
+                              Delete
+                            </button>
+                          </div>
                         </td>
 
                       </tr>
@@ -1583,6 +1660,68 @@ export default function AdminProductsPage() {
 
               </div>
 
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          DELETE PRODUCT CONFIRMATION MODAL
+      ======================================================== */}
+
+      {deleteProductTarget && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+                <Trash2 size={24} />
+              </div>
+              <h3 className="text-lg font-black text-slate-900">Delete Product?</h3>
+              <p className="text-xs text-slate-500">
+                Are you sure you want to delete:
+              </p>
+              <p className="text-sm font-black text-slate-900 bg-slate-50 py-2 px-3 rounded-xl border border-slate-200">
+                "{deleteProductTarget.name}"
+              </p>
+              <p className="text-[11px] text-red-500 font-semibold">
+                This action cannot be undone.
+              </p>
+            </div>
+
+            {deleteError && (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs font-bold">
+                {deleteError}
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                disabled={deleteLoading}
+                onClick={() => {
+                  setDeleteProductTarget(null);
+                  setDeleteError("");
+                }}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-xs py-3 rounded-xl transition"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={deleteLoading}
+                onClick={handleConfirmDelete}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs py-3 rounded-xl transition shadow-lg shadow-red-600/20 flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {deleteLoading ? (
+                  <span>Deleting...</span>
+                ) : (
+                  <>
+                    <Trash2 size={16} />
+                    <span>Delete Product</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

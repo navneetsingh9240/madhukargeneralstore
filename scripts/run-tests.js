@@ -34,6 +34,12 @@ async function runUnitTests() {
 
   console.log('🎉 All backend unit & integration checks PASSED!');
   await prisma.$disconnect();
+
+  // Run cancellation tests
+  require('./test-cancellation');
+
+  // Run delete product tests
+  require('./test-delete-product');
 }
 
 runUnitTests().catch((err) => {

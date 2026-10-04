@@ -89,6 +89,12 @@ app.put(
   authorizeRoles('ADMIN', 'STAFF'),
   adminCtrl.updateProduct
 );
+app.delete(
+  '/api/admin/products/:id',
+  authenticate,
+  authorizeRoles('ADMIN', 'STAFF'),
+  adminCtrl.deleteProduct
+);
 // Admin Categories
 app.get(
   '/api/admin/categories',
