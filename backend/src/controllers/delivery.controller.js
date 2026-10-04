@@ -9,7 +9,10 @@ async function checkPincode(req, res) {
   try {
     const pincode = String(req.params.pincode || '').trim();
 
+    // --------------------------------------------------------
     // Validate 6-digit Indian PIN code
+    // --------------------------------------------------------
+
     if (!/^\d{6}$/.test(pincode)) {
       return res.status(400).json({
         success: false,
@@ -18,31 +21,35 @@ async function checkPincode(req, res) {
       });
     }
 
+    // --------------------------------------------------------
     // Find delivery area
-    let area = await prisma.deliveryArea.findUnique({
+    // IMPORTANT:
+    // Only admin-created delivery areas are considered valid.
+    // Customer-entered PIN codes are NEVER auto-created.
+    // --------------------------------------------------------
+
+    const area = await prisma.deliveryArea.findUnique({
       where: {
         pincode,
       },
     });
 
-    // Auto-create serviceable delivery area record
-    // for newly detected valid 6-digit PIN codes
+    // --------------------------------------------------------
+    // PIN code is not added by admin
+    // --------------------------------------------------------
+
     if (!area) {
-      area = await prisma.deliveryArea.create({
-        data: {
-          pincode,
-          area: 'Standard Delivery Area',
-          city: 'Standard City',
-          state: 'Standard State',
-          deliveryCharge: 30,
-          minimumOrderAmount: 50,
-          estimatedDeliveryTime: 'Same Day / Next Day Delivery',
-          isActive: true,
-        },
+      return res.status(200).json({
+        success: true,
+        isServiceable: false,
+        message: `✕ Pincode ${pincode} is not available for delivery`,
       });
     }
 
+    // --------------------------------------------------------
     // Delivery disabled for this PIN
+    // --------------------------------------------------------
+
     if (!area.isActive) {
       return res.status(200).json({
         success: true,
@@ -50,6 +57,10 @@ async function checkPincode(req, res) {
         message: `✕ Sorry, delivery is currently paused for PIN code ${pincode}`,
       });
     }
+
+    // --------------------------------------------------------
+    // Delivery available
+    // --------------------------------------------------------
 
     return res.json({
       success: true,
@@ -176,27 +187,27 @@ async function addAddress(req, res) {
     }
 
     // --------------------------------------------------------
-    // Check / auto-create delivery area
+    // Check delivery area
+    //
+    // IMPORTANT:
+    // Only PIN codes added by Admin are accepted.
+    // Do NOT auto-create a DeliveryArea here.
     // --------------------------------------------------------
 
-    let deliveryArea = await prisma.deliveryArea.findUnique({
+    const deliveryArea = await prisma.deliveryArea.findUnique({
       where: {
         pincode: cleanPincode,
       },
     });
 
+    // --------------------------------------------------------
+    // PIN code not available for delivery
+    // --------------------------------------------------------
+
     if (!deliveryArea) {
-      deliveryArea = await prisma.deliveryArea.create({
-        data: {
-          pincode: cleanPincode,
-          area: cleanStreetArea || 'Standard Area',
-          city: cleanCity || 'Standard City',
-          state: cleanState || 'Standard State',
-          deliveryCharge: 30,
-          minimumOrderAmount: 50,
-          estimatedDeliveryTime: 'Same Day / Next Day Delivery',
-          isActive: true,
-        },
+      return res.status(400).json({
+        success: false,
+        message: `Pincode ${cleanPincode} is not available for delivery. Please enter a serviceable PIN code.`,
       });
     }
 
