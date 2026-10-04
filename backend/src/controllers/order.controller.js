@@ -951,6 +951,163 @@ async function getOrderDetails(req, res) {
 }
 
 // ============================================================
+// CANCEL ORDER
+// ============================================================
+
+// POST /api/orders/:id/cancel
+async function cancelOrder(req, res) {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    // 1. Find the order with items & user check
+    const order = await prisma.order.findFirst({
+      where: {
+        id,
+        userId,
+      },
+      include: {
+        items: true,
+      },
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+      });
+    }
+
+    // 2. Status validation
+    const allowedStatuses = ['PENDING', 'CONFIRMED'];
+    if (!allowedStatuses.includes(order.orderStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Order cannot be cancelled because its current status is ${order.orderStatus}.`,
+      });
+    }
+
+    // 3. Atomic transaction for cancellation
+    const cancelledOrder = await prisma.$transaction(
+      async (tx) => {
+        // Concurrency check: atomically update status only if still PENDING or CONFIRMED
+        const updateResult = await tx.order.updateMany({
+          where: {
+            id,
+            userId,
+            orderStatus: {
+              in: ['PENDING', 'CONFIRMED'],
+            },
+          },
+          data: {
+            orderStatus: 'CANCELLED',
+          },
+        });
+
+        if (updateResult.count === 0) {
+          const freshOrder = await tx.order.findUnique({ where: { id } });
+          const currentStatus = freshOrder ? freshOrder.orderStatus : 'UNKNOWN';
+          throw new Error(`CANNOT_CANCEL|${currentStatus}`);
+        }
+
+        // Restore inventory for each item
+        for (const item of order.items) {
+          if (!item.productId) continue;
+
+          const qty = toNumber(item.quantity);
+          if (qty <= 0) continue;
+
+          // Add quantity back to stock
+          await tx.inventory.update({
+            where: { productId: item.productId },
+            data: {
+              currentStock: {
+                increment: qty,
+              },
+            },
+          });
+
+          // Recalculate inventory status
+          const inv = await tx.inventory.findUnique({
+            where: { productId: item.productId },
+          });
+
+          if (inv) {
+            const stock = toNumber(inv.currentStock);
+            const threshold = toNumber(inv.lowStockThreshold, 5);
+            const status =
+              stock === 0
+                ? 'OUT_OF_STOCK'
+                : stock <= threshold
+                  ? 'LOW_STOCK'
+                  : 'IN_STOCK';
+
+            await tx.inventory.update({
+              where: { productId: item.productId },
+              data: { status },
+            });
+          }
+        }
+
+        // Restore coupon usage count
+        if (order.couponId) {
+          const coupon = await tx.coupon.findUnique({
+            where: { id: order.couponId },
+          });
+
+          if (coupon && coupon.usedCount > 0) {
+            await tx.coupon.update({
+              where: { id: order.couponId },
+              data: {
+                usedCount: {
+                  decrement: 1,
+                },
+              },
+            });
+          }
+        }
+
+        // Fetch updated order with full details
+        return await tx.order.findUnique({
+          where: { id },
+          include: {
+            items: true,
+            invoice: true,
+            payments: true,
+            address: true,
+          },
+        });
+      },
+      {
+        maxWait: 10000,
+        timeout: 60000,
+      }
+    );
+
+    return res.json({
+      success: true,
+      message: `Order #${order.orderNumber} cancelled successfully.`,
+      data: cancelledOrder,
+    });
+  } catch (error) {
+    console.error('Cancel order error:', error);
+
+    if (error.message && error.message.startsWith('CANNOT_CANCEL|')) {
+      const status = error.message.split('|')[1];
+      return res.status(400).json({
+        success: false,
+        message: `Order cannot be cancelled because its current status is ${status}.`,
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to cancel order. Please try again.',
+    });
+  }
+}
+
+// ============================================================
 // EXPORTS
 // ============================================================
 
@@ -959,4 +1116,5 @@ module.exports = {
   createOrder,
   getUserOrders,
   getOrderDetails,
+  cancelOrder,
 };

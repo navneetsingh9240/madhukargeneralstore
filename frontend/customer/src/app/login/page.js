@@ -98,12 +98,6 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <div className="p-3 bg-slate-50 rounded-xl text-[11px] text-slate-600 border border-slate-100">
-            <p className="font-bold text-slate-800">Test Quick Logins:</p>
-            <p>Customer: customer@gmail.com / Password123!</p>
-            <p>Admin: admin@madhukargeneralstore.com / Password123!</p>
-          </div>
-
           <button
             type="submit"
             disabled={loading}

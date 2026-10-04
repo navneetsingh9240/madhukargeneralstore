@@ -1,3 +1,4 @@
+try { require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') }); } catch (e) {}
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -54,6 +55,7 @@ app.post('/api/reviews', authenticate, userCtrl.addReview);
 app.post('/api/orders', authenticate, orderCtrl.createOrder);
 app.get('/api/orders', authenticate, orderCtrl.getUserOrders);
 app.get('/api/orders/:id', authenticate, orderCtrl.getOrderDetails);
+app.post('/api/orders/:id/cancel', authenticate, orderCtrl.cancelOrder);
 // Invoices, PDF & QR Scanning
 app.get(
   '/api/invoices/scan/:qrToken',

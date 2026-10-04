@@ -16,6 +16,44 @@ export default function OrderDetailsPage({ params }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState('');
+  const [toastMessage, setToastMessage] = useState('');
+
+  const handleConfirmCancel = async () => {
+    if (!order || !token) return;
+
+    setCancelling(true);
+    setCancelError('');
+
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+      const res = await fetch(`${API_URL}/api/orders/${order.id}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setShowCancelModal(false);
+        setOrder((prev) => ({ ...prev, orderStatus: 'CANCELLED' }));
+        setToastMessage(`Order #${order.orderNumber} cancelled successfully.`);
+        setTimeout(() => setToastMessage(''), 5000);
+      } else {
+        setCancelError(data.message || 'Failed to cancel order. Please try again.');
+      }
+    } catch (err) {
+      setCancelError('Failed to cancel order. Please try again.');
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   useEffect(() => {
     if (!token) {
       router.push('/login');
@@ -79,6 +117,17 @@ export default function OrderDetailsPage({ params }) {
           </Link>
 
           <div className="flex items-center gap-3">
+            {['PENDING', 'CONFIRMED'].includes(order.orderStatus) && (
+              <button
+                onClick={() => {
+                  setShowCancelModal(true);
+                  setCancelError('');
+                }}
+                className="bg-red-50 hover:bg-red-100 text-red-600 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 transition border border-red-200"
+              >
+                Cancel Order
+              </button>
+            )}
             <button
               onClick={handlePrint}
               className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 transition shadow-sm"
@@ -129,6 +178,17 @@ export default function OrderDetailsPage({ params }) {
             })}
           </div>
         </div>
+
+        {/* Toast Alert */}
+        {toastMessage && (
+          <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl text-xs font-extrabold flex items-center justify-between shadow-sm print:hidden">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <span>{toastMessage}</span>
+            </div>
+            <button onClick={() => setToastMessage('')} className="text-emerald-600 hover:text-emerald-900 font-bold text-sm">×</button>
+          </div>
+        )}
 
         {/* Printable Official Digital Tax Invoice Box */}
         <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-xl print:shadow-none print:border-none print:p-0">
@@ -289,6 +349,53 @@ export default function OrderDetailsPage({ params }) {
           </div>
         </div>
       </div>
+
+      {/* Confirmation Modal */}
+      {showCancelModal && order && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn print:hidden">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-slate-100 space-y-6">
+            <div className="text-center space-y-2">
+              <h3 className="text-lg font-black text-slate-900 tracking-tight">Cancel Order?</h3>
+              <p className="text-xs text-slate-500">
+                Are you sure you want to cancel order <strong className="text-slate-800">#{order.orderNumber}</strong>?
+              </p>
+            </div>
+
+            {cancelError && (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs font-bold">
+                {cancelError}
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                disabled={cancelling}
+                onClick={() => {
+                  setShowCancelModal(false);
+                  setCancelError('');
+                }}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-xs py-3 rounded-xl transition"
+              >
+                Keep Order
+              </button>
+
+              <button
+                type="button"
+                disabled={cancelling}
+                onClick={handleConfirmCancel}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs py-3 rounded-xl transition shadow-lg shadow-red-600/20 flex items-center justify-center gap-2"
+              >
+                {cancelling ? (
+                  <span>Cancelling...</span>
+                ) : (
+                  <span>Cancel Order</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
