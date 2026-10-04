@@ -136,7 +136,11 @@ export default function ProductDetailPage({ params }) {
   };
 
   const bundleItems = product.similarProducts ? [product, ...product.similarProducts.slice(0, 2)] : [product];
-  const bundleTotalPrice = bundleItems.reduce((acc, i) => acc + i.sellingPrice, 0);
+  const bundleTotalPrice = bundleItems.reduce((acc, item) => {
+    const price = Number(item?.sellingPrice ?? item?.price ?? 0);
+    return acc + (Number.isFinite(price) ? price : 0);
+  }, 0);
+  const formattedBundlePrice = bundleTotalPrice % 1 === 0 ? bundleTotalPrice : bundleTotalPrice.toFixed(2);
 
   return (
     <div className="space-y-10 pb-16">
@@ -402,7 +406,7 @@ export default function ProductDetailPage({ params }) {
               <span className="text-[10px] font-extrabold uppercase bg-amber-100 text-amber-900 px-2.5 py-0.5 rounded-full">
                 Combo Price
               </span>
-              <p className="text-2xl font-black text-slate-900">₹{bundleTotalPrice}</p>
+              <p className="text-2xl font-black text-slate-900">₹{formattedBundlePrice}</p>
               <button
                 onClick={handleAddBundle}
                 className={`w-full py-2.5 rounded-xl text-xs font-extrabold transition shadow-md ${
