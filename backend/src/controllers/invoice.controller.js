@@ -212,11 +212,8 @@ async function generateInvoicePdf(req, res) {
 
     // Header - Store Info
     doc.fillColor('#16a34a').fontSize(22).text(storeSettings.storeName || 'MADHUKAR GENERAL STORE', { bold: true });
-    doc.fillColor('#333333').fontSize(9).text(storeSettings.address || 'Main Market Road, Sector 4, City Center');
-    doc.text(`Phone: ${storeSettings.phone || '+91 9876543210'} | Email: ${storeSettings.email || 'madhukarkumarmatihani@gmail.com'}`);
-    if (storeSettings.gstin) {
-      doc.text(`GSTIN: ${storeSettings.gstin}`);
-    }
+    doc.fillColor('#333333').fontSize(9).text('Matihani Samho Road, Main Road Matihani, Begusarai, Bihar - 851129');
+    doc.text(`Phone: ${storeSettings.phone || '+91 9876543210'} | Email: ${storeSettings.email || 'support@madhukargeneralstore.com'}`);
 
     doc.moveDown(1);
     doc.strokeColor('#e5e7eb').lineWidth(1).moveTo(40, doc.y).lineTo(555, doc.y).stroke();
@@ -275,10 +272,12 @@ async function generateInvoicePdf(req, res) {
       doc.text(`Coupon Discount: -₹${order.couponDiscount}`, 380, y, { align: 'right' });
       y += 15;
     }
-    doc.text(`Delivery Charge: ₹${order.deliveryCharge}`, 380, y, { align: 'right' });
+    doc.text(`Delivery Charge: ${Number(order.deliveryCharge) === 0 ? 'FREE' : `₹${order.deliveryCharge}`}`, 380, y, { align: 'right' });
+    y += 15;
+    doc.text(`Handling Charge: ₹5`, 380, y, { align: 'right' });
     y += 15;
     if (order.taxAmount > 0) {
-      doc.text(`GST / Tax (5%): ₹${order.taxAmount.toFixed(2)}`, 380, y, { align: 'right' });
+      doc.text(`GST / Tax (5%): ₹${Number(order.taxAmount).toFixed(2)}`, 380, y, { align: 'right' });
       y += 15;
     }
 

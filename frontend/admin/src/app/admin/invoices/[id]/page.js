@@ -102,9 +102,8 @@ export default function AdminInvoiceDetailPage({ params }) {
                 <ShieldCheck className="w-6 h-6 text-brand-600" />
                 <span>MADHUKAR GENERAL STORE</span>
               </div>
-              <p className="text-xs text-slate-500 font-medium">Main Market Road, Sector 4, City Center, Patna, Bihar - 800001</p>
+              <p className="text-xs text-slate-500 font-medium">Matihani Samho Road, Main Road Matihani, Begusarai, Bihar - 851129</p>
               <p className="text-xs text-slate-500 font-medium">Support: +91 9876543210 | Email: support@madhukargeneralstore.com</p>
-              <p className="text-[11px] font-bold text-brand-700">GSTIN: 10AAAAA0000A1Z5</p>
             </div>
 
             <div className="text-left sm:text-right space-y-1">
@@ -220,8 +219,12 @@ export default function AdminInvoiceDetailPage({ params }) {
               <div className="flex justify-between text-slate-600">
                 <span>Delivery Charge</span>
                 <span className="font-bold text-slate-900">
-                  {order.deliveryCharge === 0 ? <strong className="text-emerald-600">FREE</strong> : `₹${order.deliveryCharge}`}
+                  {Number(order.deliveryCharge) === 0 ? <strong className="text-emerald-600">FREE</strong> : `₹${order.deliveryCharge}`}
                 </span>
+              </div>
+              <div className="flex justify-between text-slate-600">
+                <span>Handling Charge</span>
+                <span className="font-bold text-slate-900">₹5</span>
               </div>
               {order.taxAmount > 0 && (
                 <div className="flex justify-between text-slate-600">

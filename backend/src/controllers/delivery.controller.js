@@ -354,6 +354,7 @@ async function deleteAddress(req, res) {
   try {
     const { id } = req.params;
 
+    // 1. Verify ownership
     const address = await prisma.address.findFirst({
       where: {
         id,
@@ -364,22 +365,58 @@ async function deleteAddress(req, res) {
     if (!address) {
       return res.status(404).json({
         success: false,
-        message: 'Address not found',
+        message: 'Address not found or you are not authorized to delete this address.',
       });
     }
 
+    // 2. Check if address is referenced by existing orders
+    const orderCount = await prisma.order.count({
+      where: { addressId: id },
+    });
+
+    if (orderCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'This address is linked to an existing order and cannot be deleted.',
+      });
+    }
+
+    // 3. Handle default address reassignment if deleting a default address
+    if (address.isDefault) {
+      const remainingAddress = await prisma.address.findFirst({
+        where: {
+          userId: req.user.id,
+          NOT: { id },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (remainingAddress) {
+        await prisma.address.update({
+          where: { id: remainingAddress.id },
+          data: { isDefault: true },
+        });
+      }
+    }
+
+    // 4. Delete address
     await prisma.address.delete({
-      where: {
-        id,
-      },
+      where: { id },
     });
 
     return res.json({
       success: true,
-      message: 'Address deleted successfully',
+      message: 'Address deleted successfully.',
     });
   } catch (error) {
     console.error('Delete address error:', error);
+
+    if (error?.code === 'P2003') {
+      return res.status(400).json({
+        success: false,
+        message: 'This address is linked to an existing order and cannot be deleted.',
+      });
+    }
 
     return res.status(500).json({
       success: false,

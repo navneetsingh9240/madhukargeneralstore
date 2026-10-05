@@ -145,9 +145,11 @@ export default function CartPage() {
     }
   };
 
-  const deliveryFee = deliveryInfo ? deliveryInfo.deliveryCharge : 30;
   const couponDiscount = appliedCoupon ? appliedCoupon.discountAmount : 0;
-  const netTotal = Math.max(0, subtotal - couponDiscount + deliveryFee);
+  const eligibleOrderValue = Math.max(0, subtotal - couponDiscount);
+  const deliveryFee = deliveryInfo ? (eligibleOrderValue >= 499 ? 0 : deliveryInfo.deliveryCharge) : (eligibleOrderValue >= 499 ? 0 : 30);
+  const handlingCharge = 5;
+  const netTotal = Math.max(0, eligibleOrderValue + deliveryFee + handlingCharge);
 
   return (
     <div className="space-y-6 pb-16">
@@ -361,22 +363,28 @@ export default function CartPage() {
 
               <div className="space-y-2 text-xs text-slate-600">
                 <div className="flex justify-between">
-                  <span>{t('subtotal')} (MRP)</span>
+                  <span>Subtotal (MRP)</span>
                   <span>₹{totalMrp}</span>
                 </div>
-                <div className="flex justify-between text-emerald-600 font-semibold">
-                  <span>{t('itemDiscount')}</span>
-                  <span>-₹{totalDiscount}</span>
-                </div>
+                {totalDiscount > 0 && (
+                  <div className="flex justify-between text-emerald-600 font-semibold">
+                    <span>Product Discount</span>
+                    <span>-₹{totalDiscount}</span>
+                  </div>
+                )}
                 {appliedCoupon && (
                   <div className="flex justify-between text-amber-600 font-semibold">
-                    <span>{t('couponDiscount')} ({appliedCoupon.code})</span>
+                    <span>Coupon Discount ({appliedCoupon.code})</span>
                     <span>-₹{couponDiscount}</span>
                   </div>
                 )}
                 <div className="flex justify-between">
-                  <span>{t('deliveryCharge')}</span>
-                  <span>₹{deliveryFee}</span>
+                  <span>Delivery Charge</span>
+                  <span>{deliveryFee === 0 ? <strong className="text-emerald-600 font-bold">FREE</strong> : `₹${deliveryFee}`}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Handling Charge</span>
+                  <span>₹{handlingCharge}</span>
                 </div>
               </div>
 

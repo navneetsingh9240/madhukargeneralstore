@@ -1814,17 +1814,31 @@ async function deleteProduct(req, res) {
 // GET /api/store-settings
 async function getStoreSettings(req, res) {
   try {
-    const storeSettings = (await prisma.storeSettings.findFirst()) || {
-      storeName: 'MADHUKAR GENERAL STORE',
-      address: 'Prayagraj, Uttar Pradesh, India',
-      phone: '+91 9876543210',
-      email: 'madhukarkumarmatihani@gmail.com',
-      enableGst: true,
-      gstPercentage: 5,
-      invoicePrefix: 'MGS-INV',
-      invoiceYear: '2026',
-      freeDeliveryThreshold: 499,
-    };
+    let storeSettings = await prisma.storeSettings.findFirst();
+
+    const expectedAddress = 'Matihani Samho Road, Main Road Matihani, Begusarai, Bihar - 851129';
+
+    if (!storeSettings) {
+      storeSettings = await prisma.storeSettings.create({
+        data: {
+          id: 'madhukar-store-settings',
+          storeName: 'MADHUKAR GENERAL STORE',
+          address: expectedAddress,
+          phone: '+91 9876543210',
+          email: 'support@madhukargeneralstore.com',
+          enableGst: true,
+          gstPercentage: 5,
+          invoicePrefix: 'MGS-INV',
+          invoiceYear: '2026',
+          freeDeliveryThreshold: 499,
+        },
+      });
+    } else if (!storeSettings.address || storeSettings.address.includes('Prayagraj')) {
+      storeSettings = await prisma.storeSettings.update({
+        where: { id: storeSettings.id },
+        data: { address: expectedAddress },
+      });
+    }
 
     const upiId = process.env.STORE_UPI_ID || '9235070979@ptaxis';
 
@@ -1832,6 +1846,7 @@ async function getStoreSettings(req, res) {
       success: true,
       data: {
         ...storeSettings,
+        address: storeSettings.address || expectedAddress,
         upiId,
       },
     });

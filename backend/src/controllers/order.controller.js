@@ -366,39 +366,34 @@ async function createOrder(req, res) {
 
     // --------------------------------------------------------
     // 4. Delivery Charge Calculation
+    //
+    // Free delivery threshold (₹499) evaluated using
+    // eligible order value (subtotal - coupon discount).
     // --------------------------------------------------------
 
-    let deliveryCharge =
-      toNumber(deliveryArea.deliveryCharge);
+    const numericSubtotal = toNumber(subtotal);
+    const numericCouponDiscount = toNumber(couponDiscount);
+    const eligibleOrderValue = numericSubtotal - numericCouponDiscount;
 
-    const freeDeliveryThreshold =
-      toNumber(storeSettings.freeDeliveryThreshold);
+    let deliveryCharge = toNumber(deliveryArea.deliveryCharge);
+    const freeDeliveryThreshold = toNumber(storeSettings.freeDeliveryThreshold, 499);
 
     if (
       freeDeliveryThreshold > 0 &&
-      subtotal >= freeDeliveryThreshold
+      eligibleOrderValue >= freeDeliveryThreshold
     ) {
       deliveryCharge = 0;
     }
 
     // --------------------------------------------------------
-    // 5. Tax Calculation
+    // 5. Handling Charge & Tax Calculation
+    //
+    // Fixed ₹5 handling charge applies to ALL orders (COD & UPI)
     // --------------------------------------------------------
 
-    const numericSubtotal =
-      toNumber(subtotal);
-
-    const numericCouponDiscount =
-      toNumber(couponDiscount);
-
-    const numericDeliveryCharge =
-      toNumber(deliveryCharge);
-
-    const gstPercentage =
-      toNumber(storeSettings.gstPercentage);
-
-    const netAmount =
-      numericSubtotal - numericCouponDiscount;
+    const handlingCharge = 5;
+    const numericDeliveryCharge = toNumber(deliveryCharge);
+    const gstPercentage = toNumber(storeSettings.gstPercentage);
 
     let taxAmount = 0;
 
@@ -407,7 +402,7 @@ async function createOrder(req, res) {
       gstPercentage > 0
     ) {
       taxAmount =
-        (netAmount * gstPercentage) / 100;
+        (eligibleOrderValue * gstPercentage) / 100;
     }
 
     // --------------------------------------------------------
@@ -417,8 +412,9 @@ async function createOrder(req, res) {
     const totalAmount =
       Math.round(
         (
-          netAmount +
+          eligibleOrderValue +
           numericDeliveryCharge +
+          handlingCharge +
           taxAmount
         ) * 100
       ) / 100;
@@ -457,8 +453,8 @@ async function createOrder(req, res) {
 
     console.log(
       'Net Amount:',
-      netAmount,
-      typeof netAmount
+      eligibleOrderValue,
+      typeof eligibleOrderValue
     );
 
     console.log(

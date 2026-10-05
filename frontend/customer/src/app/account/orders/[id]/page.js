@@ -306,9 +306,8 @@ export default function OrderDetailsPage({ params }) {
                 </div>
                 <h1 className="text-xl font-black text-slate-900 tracking-tight">MADHUKAR GENERAL STORE</h1>
               </div>
-              <p className="text-xs text-slate-500 mt-1">Main Market Road, Sector 4, City Center</p>
+              <p className="text-xs text-slate-500 mt-1">Matihani Samho Road, Main Road Matihani, Begusarai, Bihar - 851129</p>
               <p className="text-xs text-slate-500">Phone: +91 9876543210 | Email: support@madhukargeneralstore.com</p>
-              <p className="text-[11px] font-bold text-brand-700 mt-0.5">GSTIN: 10AAAAA0000A1Z5</p>
             </div>
 
             <div className="text-left sm:text-right bg-brand-50/50 p-4 rounded-2xl border border-brand-100 print:bg-transparent print:border-none print:p-0">
@@ -430,14 +429,18 @@ export default function OrderDetailsPage({ params }) {
               <div className="flex justify-between text-slate-600">
                 <span>Delivery Fee:</span>
                 <span className="font-semibold text-slate-800">
-                  {order.deliveryCharge === 0 ? <strong className="text-emerald-600">FREE</strong> : `₹${order.deliveryCharge}`}
+                  {Number(order.deliveryCharge) === 0 ? <strong className="text-emerald-600">FREE</strong> : `₹${order.deliveryCharge}`}
                 </span>
+              </div>
+              <div className="flex justify-between text-slate-600">
+                <span>Handling Fee:</span>
+                <span className="font-semibold text-slate-800">₹5</span>
               </div>
               {order.taxAmount > 0 && (
                 <div className="flex justify-between text-slate-600">
                   <span>GST / Tax (5%):</span>
                   <span className="font-semibold text-slate-800">
-                    {Number(order.taxAmount || 0).toFixed(2)}
+                    ₹{Number(order.taxAmount || 0).toFixed(2)}
                   </span>
                 </div>
               )}

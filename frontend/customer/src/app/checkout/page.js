@@ -298,9 +298,11 @@ export default function CheckoutPage() {
     }
   };
 
-  const deliveryCharge = deliveryInfo ? deliveryInfo.deliveryCharge : 30;
   const couponDiscount = appliedCoupon ? appliedCoupon.discountAmount : 0;
-  const grandTotal = Math.max(0, subtotal - couponDiscount + deliveryCharge);
+  const eligibleOrderValue = Math.max(0, subtotal - couponDiscount);
+  const deliveryCharge = deliveryInfo ? (eligibleOrderValue >= 499 ? 0 : deliveryInfo.deliveryCharge) : (eligibleOrderValue >= 499 ? 0 : 30);
+  const handlingCharge = 5;
+  const grandTotal = Math.max(0, eligibleOrderValue + deliveryCharge + handlingCharge);
 
   if (cartItems.length === 0) {
     return (
@@ -609,7 +611,11 @@ export default function CheckoutPage() {
               )}
               <div className="flex justify-between font-semibold text-slate-600">
                 <span>Delivery Charge</span>
-                <span>₹{deliveryCharge}</span>
+                <span>{deliveryCharge === 0 ? <strong className="text-emerald-600 font-bold">FREE</strong> : `₹${deliveryCharge}`}</span>
+              </div>
+              <div className="flex justify-between font-semibold text-slate-600">
+                <span>Handling Charge</span>
+                <span>₹{handlingCharge}</span>
               </div>
               <div className="border-t border-slate-200 pt-2 flex justify-between font-black text-sm text-slate-900">
                 <span>Total Amount Payable</span>
