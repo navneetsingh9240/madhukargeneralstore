@@ -1826,9 +1826,7 @@ async function getStoreSettings(req, res) {
       freeDeliveryThreshold: 499,
     };
 
-    const upiId = storeSettings?.phone
-      ? `${storeSettings.phone.replace(/\D/g, '')}@upi`
-      : (process.env.STORE_UPI_ID || 'madhukarkumarmatihani@okicici');
+    const upiId = process.env.STORE_UPI_ID || '9235070979@ptaxis';
 
     return res.json({
       success: true,
