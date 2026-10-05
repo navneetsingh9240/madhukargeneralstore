@@ -36,6 +36,8 @@ app.get('/api/delivery/check/:pincode', deliveryCtrl.checkPincode);
 app.get('/api/addresses', authenticate, deliveryCtrl.getUserAddresses);
 app.post('/api/addresses', authenticate, deliveryCtrl.addAddress);
 app.delete('/api/addresses/:id', authenticate, deliveryCtrl.deleteAddress);
+// Store Settings
+app.get('/api/store-settings', adminCtrl.getStoreSettings);
 // Products & Categories
 app.get('/api/products', productCtrl.getProducts);
 app.get('/api/products/:slug', productCtrl.getProductBySlug);
@@ -56,6 +58,7 @@ app.post('/api/orders', authenticate, orderCtrl.createOrder);
 app.get('/api/orders', authenticate, orderCtrl.getUserOrders);
 app.get('/api/orders/:id', authenticate, orderCtrl.getOrderDetails);
 app.post('/api/orders/:id/cancel', authenticate, orderCtrl.cancelOrder);
+app.post('/api/orders/:id/payment/submit', authenticate, orderCtrl.submitUpiPaymentProof);
 // Invoices, PDF & QR Scanning
 app.get(
   '/api/invoices/scan/:qrToken',
@@ -159,6 +162,18 @@ app.get(
   authenticate,
   authorizeRoles('ADMIN', 'STAFF'),
   adminCtrl.getAdminOrders
+);
+app.post(
+  '/api/admin/orders/:id/payment/verify',
+  authenticate,
+  authorizeRoles('ADMIN', 'STAFF'),
+  adminCtrl.verifyPayment
+);
+app.post(
+  '/api/admin/orders/:id/payment/reject',
+  authenticate,
+  authorizeRoles('ADMIN', 'STAFF'),
+  adminCtrl.rejectPayment
 );
 app.get(
   '/api/admin/invoices',

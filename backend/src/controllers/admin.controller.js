@@ -1066,6 +1066,8 @@ async function getAdminOrders(req, res) {
           },
 
           items: true,
+
+          payments: true,
         },
 
         orderBy: {
@@ -1806,6 +1808,230 @@ async function deleteProduct(req, res) {
 }
 
 // ============================================================
+// STORE SETTINGS
+// ============================================================
+
+// GET /api/store-settings
+async function getStoreSettings(req, res) {
+  try {
+    const storeSettings = (await prisma.storeSettings.findFirst()) || {
+      storeName: 'MADHUKAR GENERAL STORE',
+      address: 'Prayagraj, Uttar Pradesh, India',
+      phone: '+91 9876543210',
+      email: 'madhukarkumarmatihani@gmail.com',
+      enableGst: true,
+      gstPercentage: 5,
+      invoicePrefix: 'MGS-INV',
+      invoiceYear: '2026',
+      freeDeliveryThreshold: 499,
+    };
+
+    const upiId = storeSettings?.phone
+      ? `${storeSettings.phone.replace(/\D/g, '')}@upi`
+      : (process.env.STORE_UPI_ID || 'madhukarkumarmatihani@okicici');
+
+    return res.json({
+      success: true,
+      data: {
+        ...storeSettings,
+        upiId,
+      },
+    });
+  } catch (error) {
+    console.error('Get store settings error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch store settings',
+    });
+  }
+}
+
+// ============================================================
+// VERIFY / REJECT UPI PAYMENT (ADMIN)
+// ============================================================
+
+// POST /api/admin/orders/:id/payment/verify
+async function verifyPayment(req, res) {
+  try {
+    const { id } = req.params;
+
+    const order = await prisma.order.findUnique({
+      where: { id },
+      include: {
+        payments: true,
+        invoice: true,
+      },
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+      });
+    }
+
+    // Atomic transaction for payment verification
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const payment = await tx.payment.findFirst({
+          where: { orderId: id },
+        });
+
+        if (payment && payment.status === 'COMPLETED') {
+          throw new Error('ALREADY_VERIFIED');
+        }
+
+        if (payment) {
+          await tx.payment.update({
+            where: { id: payment.id },
+            data: {
+              status: 'COMPLETED',
+            },
+          });
+        } else {
+          await tx.payment.create({
+            data: {
+              orderId: id,
+              paymentMethod: order.paymentMethod || 'UPI',
+              amount: order.totalAmount,
+              status: 'COMPLETED',
+            },
+          });
+        }
+
+        // Generate Invoice if not exists
+        let invoice = order.invoice;
+        if (!invoice) {
+          const storeSettings = (await tx.storeSettings.findFirst()) || {
+            invoicePrefix: 'MGS-INV',
+            invoiceYear: '2026',
+          };
+          const invoiceCount = await tx.invoice.count();
+          const invoiceNumber = `${storeSettings.invoicePrefix}-${storeSettings.invoiceYear}-${String(invoiceCount + 1).padStart(6, '0')}`;
+          const qrToken = `mgs_qr_tok_${Date.now()}_${order.id.slice(0, 8)}`;
+
+          invoice = await tx.invoice.create({
+            data: {
+              invoiceNumber,
+              orderId: order.id,
+              qrToken,
+            },
+          });
+        }
+
+        const updatedOrder = await tx.order.update({
+          where: { id },
+          data: {
+            orderStatus: 'CONFIRMED',
+            paymentStatus: 'COMPLETED',
+          },
+          include: {
+            user: { select: { name: true, email: true, phone: true } },
+            address: true,
+            invoice: true,
+            payments: true,
+            items: true,
+          },
+        });
+
+        return updatedOrder;
+      },
+      {
+        maxWait: 10000,
+        timeout: 60000,
+      }
+    );
+
+    return res.json({
+      success: true,
+      message: `Payment verified for Order #${order.orderNumber}. Order is now CONFIRMED.`,
+      data: result,
+    });
+  } catch (error) {
+    console.error('Verify payment error:', error);
+    if (error.message === 'ALREADY_VERIFIED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment is already verified and completed.',
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to verify payment. Please try again.',
+    });
+  }
+}
+
+// POST /api/admin/orders/:id/payment/reject
+async function rejectPayment(req, res) {
+  try {
+    const { id } = req.params;
+
+    const order = await prisma.order.findUnique({
+      where: { id },
+      include: {
+        payments: true,
+      },
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+      });
+    }
+
+    const updatedOrder = await prisma.$transaction(
+      async (tx) => {
+        const payment = await tx.payment.findFirst({
+          where: { orderId: id },
+        });
+
+        if (payment) {
+          await tx.payment.update({
+            where: { id: payment.id },
+            data: {
+              status: 'REJECTED',
+            },
+          });
+        }
+
+        return await tx.order.update({
+          where: { id },
+          data: {
+            paymentStatus: 'REJECTED',
+          },
+          include: {
+            user: { select: { name: true, email: true, phone: true } },
+            address: true,
+            invoice: true,
+            payments: true,
+            items: true,
+          },
+        });
+      },
+      {
+        maxWait: 10000,
+        timeout: 60000,
+      }
+    );
+
+    return res.json({
+      success: true,
+      message: `Payment rejected for Order #${order.orderNumber}.`,
+      data: updatedOrder,
+    });
+  } catch (error) {
+    console.error('Reject payment error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to reject payment. Please try again.',
+    });
+  }
+}
+
+// ============================================================
 // EXPORTS
 // ============================================================
 
@@ -1819,14 +2045,16 @@ module.exports = {
   deleteProduct,
 
   // Delivery Areas
-getAdminDeliveryAreas,
-addDeliveryArea,
-updateDeliveryArea,
-deleteDeliveryArea,
+  getAdminDeliveryAreas,
+  addDeliveryArea,
+  updateDeliveryArea,
+  deleteDeliveryArea,
 
   // Orders
   updateOrderStatus,
   getAdminOrders,
+  verifyPayment,
+  rejectPayment,
 
   // Invoices
   getAdminInvoices,
@@ -1835,6 +2063,9 @@ deleteDeliveryArea,
   getAdminCoupons,
   createCoupon,
   toggleCoupon,
+
+  // Store Settings
+  getStoreSettings,
 
   // Customers
   getAdminCustomers,

@@ -19,6 +19,11 @@ export default function CheckoutPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // UPI Payment Details
+  const [utrNumber, setUtrNumber] = useState('');
+  const [paymentScreenshot, setPaymentScreenshot] = useState('');
+  const [storeUpiId, setStoreUpiId] = useState('madhukarkumarmatihani@okicici');
+
   // New Address Form State
   const [showAddAddress, setShowAddAddress] = useState(false);
   const [geoLoading, setGeoLoading] = useState(false);
@@ -156,9 +161,37 @@ export default function CheckoutPage() {
     }
 
     fetchAddresses();
+
+    // Fetch store settings for UPI ID
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+    fetch(`${API_URL}/api/store-settings`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.data?.upiId) {
+          setStoreUpiId(data.data.upiId);
+        }
+      })
+      .catch(() => {});
+
     const interval = setInterval(fetchAddresses, 5000);
     return () => clearInterval(interval);
   }, [token, router]);
+
+  const handleScreenshotChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Screenshot image size exceeds 5MB limit');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setPaymentScreenshot(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSaveAddress = async (e) => {
     e.preventDefault();
@@ -202,6 +235,11 @@ export default function CheckoutPage() {
       return;
     }
 
+    if (paymentMethod === 'UPI' && !utrNumber.trim()) {
+      setError('Please enter your UPI Transaction ID / UTR number');
+      return;
+    }
+
     setLoading(true);
     setError('');
 
@@ -230,8 +268,26 @@ export default function CheckoutPage() {
       const data = await res.json();
 
       if (data.success) {
+        const createdOrder = data.data;
+
+        // If UPI payment, submit payment proof
+        if (paymentMethod === 'UPI' && utrNumber.trim()) {
+          const proofRes = await fetch(`${API_URL}/api/orders/${createdOrder.id}/payment/submit`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              utr: utrNumber.trim(),
+              screenshot: paymentScreenshot,
+            }),
+          });
+          await proofRes.json();
+        }
+
         clearCart();
-        router.push(`/account/orders/${data.data.id}?success=true`);
+        router.push(`/account/orders/${createdOrder.id}?success=true`);
       } else {
         setError(data.message || 'Failed to place order');
       }
@@ -444,17 +500,100 @@ export default function CheckoutPage() {
               <span>Select Payment Method</span>
             </h2>
 
-            <div>
+            <div className="space-y-3">
               <div
-                className="p-4 rounded-2xl border-2 border-brand-600 bg-brand-50/50 flex items-center justify-between"
+                onClick={() => setPaymentMethod('COD')}
+                className={`p-4 rounded-2xl border-2 cursor-pointer transition flex items-center justify-between ${
+                  paymentMethod === 'COD' ? 'border-brand-600 bg-brand-50/50' : 'border-slate-200 hover:border-slate-300'
+                }`}
               >
                 <div>
                   <p className="font-extrabold text-xs text-slate-900">Cash on Delivery (COD)</p>
                   <p className="text-[11px] text-slate-500">Pay cash upon doorstep handover</p>
                 </div>
-                <CheckCircle2 className="w-5 h-5 text-brand-600" />
+                {paymentMethod === 'COD' && <CheckCircle2 className="w-5 h-5 text-brand-600" />}
+              </div>
+
+              <div
+                onClick={() => setPaymentMethod('UPI')}
+                className={`p-4 rounded-2xl border-2 cursor-pointer transition flex items-center justify-between ${
+                  paymentMethod === 'UPI' ? 'border-brand-600 bg-brand-50/50' : 'border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <div>
+                  <p className="font-extrabold text-xs text-slate-900">UPI / Online Payment (Google Pay / PhonePe / Paytm / BHIM)</p>
+                  <p className="text-[11px] text-slate-500">Scan QR code & submit UTR for instant manual verification</p>
+                </div>
+                {paymentMethod === 'UPI' && <CheckCircle2 className="w-5 h-5 text-brand-600" />}
               </div>
             </div>
+
+            {/* UPI QR & Payment Proof Section */}
+            {paymentMethod === 'UPI' && (
+              <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+                <div className="text-center space-y-2">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-brand-700 bg-brand-100 px-3 py-1 rounded-full">
+                    UPI PAYMENT
+                  </span>
+                  <div className="pt-2">
+                    <p className="text-xs font-bold text-slate-600">Amount to Pay</p>
+                    <p className="text-2xl font-black text-brand-700">₹{grandTotal}</p>
+                    <p className="text-[11px] font-semibold text-slate-500 flex items-center justify-center gap-1 mt-0.5">
+                      🔒 Amount fixed by order calculation
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-center justify-center p-4 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
+                      `upi://pay?pa=${storeUpiId}&pn=Madhukar%20General%20Store&am=${grandTotal.toFixed(2)}&cu=INR`
+                    )}`}
+                    alt="UPI Payment QR Code"
+                    className="w-48 h-48 object-contain border border-slate-100 rounded-xl"
+                  />
+                  <div className="text-center">
+                    <p className="text-xs font-bold text-slate-800">Scan using Google Pay, PhonePe, Paytm, or BHIM</p>
+                    <p className="text-xs font-mono font-bold text-brand-700 mt-1">UPI ID: {storeUpiId}</p>
+                  </div>
+
+                  <a
+                    href={`upi://pay?pa=${storeUpiId}&pn=Madhukar%20General%20Store&am=${grandTotal.toFixed(2)}&cu=INR`}
+                    className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-black text-white text-xs font-extrabold px-4 py-2 rounded-xl transition"
+                  >
+                    Open UPI App
+                  </a>
+                </div>
+
+                <div className="space-y-3 pt-2">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      UPI Transaction ID / UTR Number <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Enter 12-digit UTR or Transaction ID"
+                      value={utrNumber}
+                      onChange={(e) => setUtrNumber(e.target.value)}
+                      className="w-full px-3 py-2.5 text-xs font-mono border border-slate-300 rounded-xl focus:border-brand-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Payment Screenshot (Optional, Max 5MB)
+                    </label>
+                    <input
+                      type="file"
+                      accept="image/png, image/jpeg, image/jpg, image/webp"
+                      onChange={handleScreenshotChange}
+                      className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Final Order Amount Summary */}
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2 text-xs">

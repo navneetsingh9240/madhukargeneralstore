@@ -643,12 +643,14 @@ async function createOrder(req, res) {
               paymentMethod,
 
               paymentStatus:
-                paymentMethod === 'COD'
+                paymentMethod === 'COD' || paymentMethod === 'UPI' || paymentMethod === 'ONLINE'
                   ? 'PENDING'
                   : 'COMPLETED',
 
               orderStatus:
-                'CONFIRMED',
+                paymentMethod === 'UPI' || paymentMethod === 'ONLINE'
+                  ? 'PENDING'
+                  : 'CONFIRMED',
 
               deliveryPincode:
                 pincode,
@@ -713,7 +715,9 @@ async function createOrder(req, res) {
             status:
               paymentMethod === 'COD'
                 ? 'PENDING'
-                : 'SUCCESS',
+                : paymentMethod === 'UPI' || paymentMethod === 'ONLINE'
+                  ? 'VERIFICATION_PENDING'
+                  : 'SUCCESS',
 
             transactionId:
               paymentMethod === 'ONLINE'
@@ -757,6 +761,14 @@ async function createOrder(req, res) {
     );
 
     // --------------------------------------------------------
+    // Dynamic UPI Payment URI Generation
+    // --------------------------------------------------------
+
+    const upiId = storeSettings?.phone ? `${storeSettings.phone}@upi` : (process.env.STORE_UPI_ID || 'madhukarkumarmatihani@okicici');
+    const storeName = storeSettings?.storeName || 'MADHUKAR GENERAL STORE';
+    const upiUri = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(storeName)}&am=${toNumber(totalAmount).toFixed(2)}&cu=INR&tr=${order.orderNumber}`;
+
+    // --------------------------------------------------------
     // Response
     // --------------------------------------------------------
 
@@ -766,8 +778,16 @@ async function createOrder(req, res) {
       message:
         'Order placed successfully!',
 
-      data:
-        order,
+      data: {
+        ...order,
+        upiDetails: {
+          upiId,
+          storeName,
+          amount: toNumber(totalAmount),
+          upiUri,
+          orderNumber: order.orderNumber,
+        },
+      },
     });
   } catch (error) {
     // --------------------------------------------------------
@@ -1108,6 +1128,126 @@ async function cancelOrder(req, res) {
 }
 
 // ============================================================
+// SUBMIT UPI PAYMENT PROOF
+// ============================================================
+
+// POST /api/orders/:id/payment/submit
+async function submitUpiPaymentProof(req, res) {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const { utr, screenshot } = req.body;
+
+    // 1. Fetch order and verify ownership
+    const order = await prisma.order.findFirst({
+      where: {
+        id,
+        userId,
+      },
+      include: {
+        payments: true,
+      },
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+      });
+    }
+
+    // 2. Validate UTR (required)
+    const cleanUtr = String(utr || '').trim();
+    if (!cleanUtr) {
+      return res.status(400).json({
+        success: false,
+        message: 'UTR / Transaction ID is required',
+      });
+    }
+
+    // 3. Validate Screenshot Size if provided (max 5MB ~ 7MB base64)
+    if (screenshot && typeof screenshot === 'string' && screenshot.startsWith('data:')) {
+      if (screenshot.length > 7 * 1024 * 1024) {
+        return res.status(400).json({
+          success: false,
+          message: 'Screenshot file size exceeds 5MB limit',
+        });
+      }
+    }
+
+    // 4. Lock payable amount to actual database order.totalAmount
+    const expectedAmount = toNumber(order.totalAmount);
+
+    // Format transactionId to store UTR and optional screenshot proof
+    const transactionIdPayload = screenshot
+      ? `UTR:${cleanUtr}|SCREENSHOT:${screenshot}`
+      : `UTR:${cleanUtr}`;
+
+    // Execute atomic payment update
+    const updatedOrder = await prisma.$transaction(
+      async (tx) => {
+        // Find existing payment or create
+        const existingPayment = await tx.payment.findFirst({
+          where: { orderId: id },
+        });
+
+        if (existingPayment) {
+          await tx.payment.update({
+            where: { id: existingPayment.id },
+            data: {
+              paymentMethod: 'UPI',
+              amount: expectedAmount,
+              status: 'VERIFICATION_PENDING',
+              transactionId: transactionIdPayload,
+            },
+          });
+        } else {
+          await tx.payment.create({
+            data: {
+              orderId: id,
+              paymentMethod: 'UPI',
+              amount: expectedAmount,
+              status: 'VERIFICATION_PENDING',
+              transactionId: transactionIdPayload,
+            },
+          });
+        }
+
+        // Update order payment status
+        return await tx.order.update({
+          where: { id },
+          data: {
+            paymentStatus: 'PENDING',
+          },
+          include: {
+            items: true,
+            address: true,
+            payments: true,
+            invoice: true,
+          },
+        });
+      },
+      {
+        maxWait: 10000,
+        timeout: 60000,
+      }
+    );
+
+    return res.json({
+      success: true,
+      message: 'Payment details submitted successfully. Your order will be confirmed after verification.',
+      data: updatedOrder,
+    });
+  } catch (error) {
+    console.error('Submit UPI payment proof error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to submit payment details. Please try again.',
+    });
+  }
+}
+
+// ============================================================
 // EXPORTS
 // ============================================================
 
@@ -1117,4 +1257,5 @@ module.exports = {
   getUserOrders,
   getOrderDetails,
   cancelOrder,
+  submitUpiPaymentProof,
 };

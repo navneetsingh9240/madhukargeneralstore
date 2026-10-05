@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Search, Filter, Printer, FileText, CheckCircle2, Truck, Package, Clock, XCircle, Navigation, Map, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Search, Filter, Printer, FileText, CheckCircle2, Truck, Package, Clock, XCircle, Navigation, Map, ExternalLink, ShieldCheck, Eye } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 
 export default function AdminOrdersPage() {
@@ -15,6 +15,12 @@ export default function AdminOrdersPage() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [search, setSearch] = useState('');
   const [updatingId, setUpdatingId] = useState(null);
+
+  // UPI Payment Verification Modal State
+  const [verifyModalOrder, setVerifyModalOrder] = useState(null);
+  const [rejectModalOrder, setRejectModalOrder] = useState(null);
+  const [verifying, setVerifying] = useState(false);
+  const [viewScreenshotUrl, setViewScreenshotUrl] = useState('');
 
   useEffect(() => {
     if (!token) {
@@ -66,6 +72,62 @@ export default function AdminOrdersPage() {
       alert('Error updating status');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const handleConfirmVerifyPayment = async () => {
+    if (!verifyModalOrder || !token) return;
+    setVerifying(true);
+
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+      const res = await fetch(`${API_URL}/api/admin/orders/${verifyModalOrder.id}/payment/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setVerifyModalOrder(null);
+        fetchOrders();
+      } else {
+        alert(data.message || 'Failed to verify payment');
+      }
+    } catch (err) {
+      alert('Error verifying payment');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handleConfirmRejectPayment = async () => {
+    if (!rejectModalOrder || !token) return;
+    setVerifying(true);
+
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+      const res = await fetch(`${API_URL}/api/admin/orders/${rejectModalOrder.id}/payment/reject`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setRejectModalOrder(null);
+        fetchOrders();
+      } else {
+        alert(data.message || 'Failed to reject payment');
+      }
+    } catch (err) {
+      alert('Error rejecting payment');
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -191,6 +253,81 @@ export default function AdminOrdersPage() {
                   </div>
                 </div>
 
+                {/* UPI Verification Info Block */}
+                {(ord.paymentMethod === 'UPI' || ord.payments?.[0]?.paymentMethod === 'UPI') && (
+                  <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-amber-700" />
+                        <span className="text-xs font-black text-amber-900">UPI Payment Verification</span>
+                      </div>
+                      <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full ${
+                        ord.paymentStatus === 'COMPLETED'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : ord.paymentStatus === 'REJECTED'
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-amber-200 text-amber-900'
+                      }`}>
+                        {ord.paymentStatus === 'COMPLETED' ? 'VERIFIED & COMPLETED' : ord.paymentStatus === 'REJECTED' ? 'REJECTED' : 'VERIFICATION PENDING'}
+                      </span>
+                    </div>
+
+                    {(() => {
+                      const pay = ord.payments?.[0] || {};
+                      const rawTx = pay.transactionId || '';
+                      let utr = 'N/A';
+                      let screenshotUrl = '';
+
+                      if (rawTx.includes('UTR:')) {
+                        const parts = rawTx.split('|');
+                        utr = parts[0].replace('UTR:', '');
+                        if (parts[1] && parts[1].startsWith('SCREENSHOT:')) {
+                          screenshotUrl = parts[1].replace('SCREENSHOT:', '');
+                        }
+                      } else if (rawTx) {
+                        utr = rawTx;
+                      }
+
+                      return (
+                        <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+                          <div>
+                            <p className="text-slate-600">Expected Amount: <strong className="text-slate-900">₹{ord.totalAmount}</strong></p>
+                            <p className="text-slate-600 font-mono">UTR / Transaction ID: <strong className="text-brand-800 font-bold">{utr}</strong></p>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {screenshotUrl && (
+                              <button
+                                onClick={() => setViewScreenshotUrl(screenshotUrl)}
+                                className="bg-white hover:bg-slate-100 text-slate-800 font-bold px-3 py-1.5 rounded-xl border border-slate-200 flex items-center gap-1 shadow-sm text-[11px]"
+                              >
+                                <Eye className="w-3.5 h-3.5" /> View Screenshot
+                              </button>
+                            )}
+
+                            {ord.paymentStatus !== 'COMPLETED' && (
+                              <>
+                                <button
+                                  onClick={() => setVerifyModalOrder(ord)}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-3.5 py-1.5 rounded-xl text-[11px] shadow-sm transition"
+                                >
+                                  ✓ VERIFY PAYMENT
+                                </button>
+                                <button
+                                  onClick={() => setRejectModalOrder(ord)}
+                                  className="bg-red-50 hover:bg-red-100 text-red-700 font-bold px-3 py-1.5 rounded-xl border border-red-200 text-[11px] transition"
+                                >
+                                  ✕ REJECT
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-wrap items-center justify-between gap-3 pt-3">
                   <div className="text-xs text-slate-600">
                     <span className="font-bold text-slate-800">{ord.items.length} Items:</span>{' '}
@@ -213,6 +350,83 @@ export default function AdminOrdersPage() {
           )}
         </div>
       </div>
+
+      {/* Verify Payment Confirmation Modal */}
+      {verifyModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-slate-100 space-y-5 text-center">
+            <h3 className="text-lg font-black text-slate-900">Verify Payment?</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Please confirm that <strong className="text-slate-900">₹{verifyModalOrder.totalAmount}</strong> has actually been received in the store's merchant UPI or bank account for Order <strong className="text-slate-900">#{verifyModalOrder.orderNumber}</strong>.
+            </p>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                disabled={verifying}
+                onClick={() => setVerifyModalOrder(null)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-3 rounded-xl transition"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={verifying}
+                onClick={handleConfirmVerifyPayment}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-3 rounded-xl transition shadow-md shadow-emerald-600/30"
+              >
+                {verifying ? 'Verifying...' : 'Verify Payment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Payment Confirmation Modal */}
+      {rejectModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-slate-100 space-y-5 text-center">
+            <h3 className="text-lg font-black text-slate-900">Reject Payment?</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Are you sure you want to reject the payment submission for Order <strong className="text-slate-900">#{rejectModalOrder.orderNumber}</strong>? The customer will be prompted to re-enter payment proof.
+            </p>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                disabled={verifying}
+                onClick={() => setRejectModalOrder(null)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-3 rounded-xl transition"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={verifying}
+                onClick={handleConfirmRejectPayment}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-black text-xs py-3 rounded-xl transition shadow-md shadow-red-600/20"
+              >
+                {verifying ? 'Rejecting...' : 'Reject Payment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Screenshot Modal */}
+      {viewScreenshotUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 max-w-lg w-full space-y-4 text-center">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+              <span className="text-xs font-bold text-slate-900">Payment Proof Screenshot</span>
+              <button onClick={() => setViewScreenshotUrl('')} className="text-slate-400 hover:text-slate-700 text-base font-bold">✕</button>
+            </div>
+            <div className="max-h-[70vh] overflow-auto rounded-2xl border border-slate-200 p-2">
+              <img src={viewScreenshotUrl} alt="Payment Proof" className="w-full h-auto object-contain rounded-xl" />
+            </div>
+            <button
+              onClick={() => setViewScreenshotUrl('')}
+              className="w-full bg-slate-900 text-white font-bold text-xs py-2.5 rounded-xl"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

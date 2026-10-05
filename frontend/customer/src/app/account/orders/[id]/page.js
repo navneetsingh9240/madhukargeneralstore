@@ -21,6 +21,49 @@ export default function OrderDetailsPage({ params }) {
   const [cancelError, setCancelError] = useState('');
   const [toastMessage, setToastMessage] = useState('');
 
+  // Resubmit UPI proof state
+  const [resubmitUtr, setResubmitUtr] = useState('');
+  const [resubmitScreenshot, setResubmitScreenshot] = useState('');
+  const [submittingProof, setSubmittingProof] = useState(false);
+  const [proofMessage, setProofMessage] = useState('');
+
+  const handleResubmitProof = async (e) => {
+    e.preventDefault();
+    if (!resubmitUtr.trim()) return;
+
+    setSubmittingProof(true);
+    setProofMessage('');
+
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+      const res = await fetch(`${API_URL}/api/orders/${order.id}/payment/submit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          utr: resubmitUtr.trim(),
+          screenshot: resubmitScreenshot,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setOrder(data.data);
+        setProofMessage('Payment details submitted successfully for verification.');
+        setResubmitUtr('');
+        setResubmitScreenshot('');
+      } else {
+        setProofMessage(data.message || 'Failed to submit payment proof.');
+      }
+    } catch (err) {
+      setProofMessage('Failed to submit payment proof.');
+    } finally {
+      setSubmittingProof(false);
+    }
+  };
+
   const handleConfirmCancel = async () => {
     if (!order || !token) return;
 
@@ -187,6 +230,67 @@ export default function OrderDetailsPage({ params }) {
               <span>{toastMessage}</span>
             </div>
             <button onClick={() => setToastMessage('')} className="text-emerald-600 hover:text-emerald-900 font-bold text-sm">×</button>
+          </div>
+        )}
+
+        {/* UPI Payment Verification Notice Box */}
+        {(order.paymentMethod === 'UPI' || order.payments?.[0]?.paymentMethod === 'UPI') && (
+          <div className="mb-6 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm print:hidden space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black uppercase tracking-wider text-slate-800">UPI Payment Status</span>
+              <span className={`text-[11px] font-extrabold px-3 py-1 rounded-full ${
+                order.paymentStatus === 'COMPLETED'
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : order.paymentStatus === 'REJECTED'
+                  ? 'bg-red-100 text-red-800'
+                  : 'bg-amber-100 text-amber-800'
+              }`}>
+                {order.paymentStatus === 'COMPLETED'
+                  ? 'Payment Verified & Completed'
+                  : order.paymentStatus === 'REJECTED'
+                  ? 'Payment Verification Rejected'
+                  : 'Payment Verification Pending'}
+              </span>
+            </div>
+
+            {order.paymentStatus === 'COMPLETED' ? (
+              <p className="text-xs text-slate-600">
+                Your payment of <strong>₹{order.totalAmount}</strong> has been verified and confirmed.
+              </p>
+            ) : order.paymentStatus === 'REJECTED' ? (
+              <div className="space-y-3">
+                <p className="text-xs text-red-600 font-bold">
+                  Payment verification failed. Please check your transaction details and resubmit or contact store support.
+                </p>
+
+                <form onSubmit={handleResubmitProof} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                  <p className="text-xs font-bold text-slate-800">Resubmit Payment Proof</p>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter 12-digit UTR Number"
+                    value={resubmitUtr}
+                    onChange={(e) => setResubmitUtr(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-xl"
+                  />
+                  <button
+                    type="submit"
+                    disabled={submittingProof}
+                    className="bg-brand-600 text-white font-bold text-xs px-4 py-2 rounded-xl"
+                  >
+                    {submittingProof ? 'Submitting...' : 'Resubmit Proof'}
+                  </button>
+                  {proofMessage && <p className="text-xs font-bold text-slate-700">{proofMessage}</p>}
+                </form>
+              </div>
+            ) : (
+              <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 space-y-1">
+                <p className="text-xs font-extrabold text-amber-900">Payment Verification Pending</p>
+                <p className="text-xs text-amber-800">
+                  Your payment details have been submitted. Your order will be confirmed once store admins verify the payment in the store bank account.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
