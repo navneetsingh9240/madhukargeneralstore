@@ -764,7 +764,7 @@ async function createOrder(req, res) {
     // Dynamic UPI Payment URI Generation
     // --------------------------------------------------------
 
-    const upiId = storeSettings?.phone ? `${storeSettings.phone}@upi` : (process.env.STORE_UPI_ID || 'madhukarkumarmatihani@okicici');
+    const upiId = process.env.STORE_UPI_ID || '9235070979@ptaxis';
     const storeName = storeSettings?.storeName || 'MADHUKAR GENERAL STORE';
     const upiUri = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(storeName)}&am=${toNumber(totalAmount).toFixed(2)}&cu=INR&tr=${order.orderNumber}`;
 
@@ -1156,32 +1156,29 @@ async function submitUpiPaymentProof(req, res) {
       });
     }
 
-    // 2. Validate UTR (required)
-    const cleanUtr = String(utr || '').trim();
-    if (!cleanUtr) {
+    // 2. Validate Screenshot (REQUIRED)
+    if (!screenshot || typeof screenshot !== 'string' || !screenshot.startsWith('data:')) {
       return res.status(400).json({
         success: false,
-        message: 'UTR / Transaction ID is required',
+        message: 'Payment screenshot is required for verification.',
       });
     }
 
-    // 3. Validate Screenshot Size if provided (max 5MB ~ 7MB base64)
-    if (screenshot && typeof screenshot === 'string' && screenshot.startsWith('data:')) {
-      if (screenshot.length > 7 * 1024 * 1024) {
-        return res.status(400).json({
-          success: false,
-          message: 'Screenshot file size exceeds 5MB limit',
-        });
-      }
+    if (screenshot.length > 7 * 1024 * 1024) {
+      return res.status(400).json({
+        success: false,
+        message: 'Screenshot file size exceeds 5MB limit.',
+      });
     }
+
+    // 3. UTR (OPTIONAL)
+    const cleanUtr = String(utr || '').trim() || 'N/A';
 
     // 4. Lock payable amount to actual database order.totalAmount
     const expectedAmount = toNumber(order.totalAmount);
 
-    // Format transactionId to store UTR and optional screenshot proof
-    const transactionIdPayload = screenshot
-      ? `UTR:${cleanUtr}|SCREENSHOT:${screenshot}`
-      : `UTR:${cleanUtr}`;
+    // Format transactionId to store UTR and screenshot proof
+    const transactionIdPayload = `UTR:${cleanUtr}|SCREENSHOT:${screenshot}`;
 
     // Execute atomic payment update
     const updatedOrder = await prisma.$transaction(

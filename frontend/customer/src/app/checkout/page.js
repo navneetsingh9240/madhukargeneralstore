@@ -22,7 +22,7 @@ export default function CheckoutPage() {
   // UPI Payment Details
   const [utrNumber, setUtrNumber] = useState('');
   const [paymentScreenshot, setPaymentScreenshot] = useState('');
-  const [storeUpiId, setStoreUpiId] = useState('madhukarkumarmatihani@okicici');
+  const [storeUpiId, setStoreUpiId] = useState('9235070979@ptaxis');
 
   // New Address Form State
   const [showAddAddress, setShowAddAddress] = useState(false);
@@ -235,8 +235,8 @@ export default function CheckoutPage() {
       return;
     }
 
-    if (paymentMethod === 'UPI' && !utrNumber.trim()) {
-      setError('Please enter your UPI Transaction ID / UTR number');
+    if (paymentMethod === 'UPI' && !paymentScreenshot) {
+      setError('Please upload a payment screenshot for UPI verification');
       return;
     }
 
@@ -271,7 +271,7 @@ export default function CheckoutPage() {
         const createdOrder = data.data;
 
         // If UPI payment, submit payment proof
-        if (paymentMethod === 'UPI' && utrNumber.trim()) {
+        if (paymentMethod === 'UPI' && paymentScreenshot) {
           const proofRes = await fetch(`${API_URL}/api/orders/${createdOrder.id}/payment/submit`, {
             method: 'POST',
             headers: {
@@ -568,27 +568,27 @@ export default function CheckoutPage() {
                 <div className="space-y-3 pt-2">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      UPI Transaction ID / UTR Number <span className="text-red-500">*</span>
+                      Payment Screenshot <span className="text-red-500">* (REQUIRED, Max 5MB)</span>
                     </label>
                     <input
-                      type="text"
+                      type="file"
                       required
-                      placeholder="Enter 12-digit UTR or Transaction ID"
-                      value={utrNumber}
-                      onChange={(e) => setUtrNumber(e.target.value)}
-                      className="w-full px-3 py-2.5 text-xs font-mono border border-slate-300 rounded-xl focus:border-brand-500 focus:outline-none"
+                      accept="image/png, image/jpeg, image/jpg, image/webp"
+                      onChange={handleScreenshotChange}
+                      className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100"
                     />
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Payment Screenshot (Optional, Max 5MB)
+                      UPI Transaction ID / UTR Number (Optional)
                     </label>
                     <input
-                      type="file"
-                      accept="image/png, image/jpeg, image/jpg, image/webp"
-                      onChange={handleScreenshotChange}
-                      className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100"
+                      type="text"
+                      placeholder="Enter 12-digit UTR or Transaction ID (if available)"
+                      value={utrNumber}
+                      onChange={(e) => setUtrNumber(e.target.value)}
+                      className="w-full px-3 py-2.5 text-xs font-mono border border-slate-300 rounded-xl focus:border-brand-500 focus:outline-none"
                     />
                   </div>
                 </div>
