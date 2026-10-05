@@ -56,14 +56,33 @@ async function register(req, res) {
 // POST /api/auth/login
 async function login(req, res) {
   try {
-    const { email, password } = req.body;
+    const { email, identifier: rawIdentifier, password } = req.body;
+    const inputIdentifier = (rawIdentifier || email || '').trim();
 
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: 'Email and password are required' });
+    if (!inputIdentifier || !password) {
+      return res.status(400).json({ success: false, message: 'Email or mobile number and password are required' });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
+    const cleanedDigits = inputIdentifier.replace(/\D/g, '');
+    const searchConditions = [
+      { email: inputIdentifier.toLowerCase() },
+      { phone: inputIdentifier },
+    ];
+
+    if (cleanedDigits) {
+      searchConditions.push({ phone: cleanedDigits });
+      if (cleanedDigits.length === 10) {
+        searchConditions.push({ phone: `+91${cleanedDigits}` });
+        searchConditions.push({ phone: `91${cleanedDigits}` });
+      } else if (cleanedDigits.length === 12 && cleanedDigits.startsWith('91')) {
+        searchConditions.push({ phone: cleanedDigits.slice(2) });
+      }
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: searchConditions,
+      },
     });
 
     if (!user) {

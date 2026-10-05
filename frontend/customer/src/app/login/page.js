@@ -3,14 +3,15 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { User, Lock, ArrowRight, ShieldCheck, AlertCircle } from 'lucide-react';
+import { User, Lock, ArrowRight, ShieldCheck, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 
 export default function LoginPage() {
   const { lang, t } = useLanguage();
-  const [email, setEmail] = useState('customer@gmail.com');
-  const [password, setPassword] = useState('Password123!');
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -27,7 +28,7 @@ export default function LoginPage() {
       const res = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ identifier, email: identifier, password }),
       });
 
       const data = await res.json();
@@ -71,13 +72,17 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">{t('emailAddress')}</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              {lang === 'hi' ? 'ईमेल या मोबाइल नंबर' : 'Email or Mobile Number'}
+            </label>
             <div className="relative">
               <input
-                type="email"
+                type="text"
+                autoComplete="username"
                 required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                placeholder={lang === 'hi' ? 'ईमेल या मोबाइल नंबर दर्ज करें' : 'Enter email or mobile number'}
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
                 className="w-full pl-9 pr-4 py-2.5 text-xs border border-slate-300 rounded-xl focus:border-brand-500 focus:outline-none"
               />
               <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -85,16 +90,28 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Password</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              {lang === 'hi' ? 'पासवर्ड' : 'Password'}
+            </label>
             <div className="relative">
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
                 required
+                placeholder={lang === 'hi' ? 'पासवर्ड दर्ज करें' : 'Enter password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-9 pr-4 py-2.5 text-xs border border-slate-300 rounded-xl focus:border-brand-500 focus:outline-none"
+                className="w-full pl-9 pr-10 py-2.5 text-xs border border-slate-300 rounded-xl focus:border-brand-500 focus:outline-none"
               />
               <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 focus:outline-none p-1 rounded"
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
             </div>
           </div>
 
