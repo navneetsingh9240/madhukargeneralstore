@@ -72,6 +72,12 @@ app.post(
   authorizeRoles('ADMIN', 'STAFF', 'DELIVERY'),
   invoiceCtrl.verifyAndMarkDelivered
 );
+app.post(
+  '/api/delivery/collect-payment',
+  authenticate,
+  authorizeRoles('ADMIN', 'STAFF', 'DELIVERY'),
+  adminCtrl.collectDeliveryPayment
+);
 // Admin Routes
 app.get(
   '/api/admin/metrics',

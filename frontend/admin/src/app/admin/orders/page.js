@@ -279,11 +279,11 @@ export default function AdminOrdersPage() {
                       let screenshotUrl = '';
 
                       if (rawTx.includes('UTR:')) {
-                        const parts = rawTx.split('|');
-                        utr = parts[0].replace('UTR:', '');
-                        if (parts[1] && parts[1].startsWith('SCREENSHOT:')) {
-                          screenshotUrl = parts[1].replace('SCREENSHOT:', '');
-                        }
+                        const utrMatch = rawTx.match(/UTR:([^|]+)/);
+                        if (utrMatch && utrMatch[1]) utr = utrMatch[1];
+
+                        const screenshotMatch = rawTx.match(/SCREENSHOT:([^|]+)/);
+                        if (screenshotMatch && screenshotMatch[1]) screenshotUrl = screenshotMatch[1];
                       } else if (rawTx) {
                         utr = rawTx;
                       }

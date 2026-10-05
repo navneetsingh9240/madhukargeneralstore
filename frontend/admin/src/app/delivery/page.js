@@ -46,6 +46,27 @@ function DeliveryContent() {
   const [showCamera, setShowCamera] = useState(false);
   const [cameraError, setCameraError] = useState(null);
 
+  // Doorstep Payment Collection State
+  const [storeUpiId, setStoreUpiId] = useState("9235070979@ptaxis");
+  const [collectionMethod, setCollectionMethod] = useState("CASH"); // "CASH" or "UPI"
+  const [doorstepUtr, setDoorstepUtr] = useState("");
+  const [showConfirmCashModal, setShowConfirmCashModal] = useState(false);
+  const [showUpiModal, setShowUpiModal] = useState(false);
+  const [collecting, setCollecting] = useState(false);
+
+  // Fetch Store Settings UPI ID
+  useEffect(() => {
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+    fetch(`${API_URL}/api/store-settings`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.data?.upiId) {
+          setStoreUpiId(data.data.upiId);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const videoRef = React.useRef(null);
   const canvasRef = React.useRef(null);
   const animationFrameId = React.useRef(null);
@@ -309,6 +330,66 @@ function DeliveryContent() {
 
     animationFrameId.current =
       requestAnimationFrame(tickScan);
+  };
+
+  // ==========================================================
+  // COLLECT DOORSTEP PAYMENT
+  // ==========================================================
+
+  const handleCollectPayment = async (selectedMethod) => {
+    if (!scannedOrder || !token) return;
+
+    setCollecting(true);
+    setMessage(null);
+
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+      const res = await fetch(`${API_URL}/api/delivery/collect-payment`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          orderId: scannedOrder.orderId,
+          method: selectedMethod,
+          utr: doorstepUtr,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setShowConfirmCashModal(false);
+        setShowUpiModal(false);
+        setDoorstepUtr("");
+
+        setMessage({
+          error: false,
+          text: data.message,
+        });
+
+        setScannedOrder((prev) => ({
+          ...prev,
+          orderStatus: "DELIVERED",
+          paymentStatus: "COMPLETED",
+          paymentMethod: selectedMethod,
+        }));
+      } else {
+        setMessage({
+          error: true,
+          text: data.message || "Failed to collect payment",
+        });
+      }
+    } catch (err) {
+      console.error("Collect payment error:", err);
+      setMessage({
+        error: true,
+        text: "Could not connect to payment collection server",
+      });
+    } finally {
+      setCollecting(false);
+    }
   };
 
   // ==========================================================
@@ -747,30 +828,160 @@ function DeliveryContent() {
           </div>
 
           {/* ====================================================
-              DELIVERY CONFIRMATION
+              DELIVERY & PAYMENT COLLECTION CONTROLS
           ==================================================== */}
 
           {user &&
-            ["ADMIN", "STAFF", "DELIVERY"].includes(
-              user.role
-            ) &&
-            scannedOrder.orderStatus !==
-              "DELIVERED" && (
-              <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200">
+            ["ADMIN", "STAFF", "DELIVERY"].includes(user.role) &&
+            scannedOrder.orderStatus !== "DELIVERED" && (
+              <div className="space-y-4 pt-2">
+                {scannedOrder.paymentStatus === "COMPLETED" ? (
+                  <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-200 space-y-3">
+                    <div className="flex items-center gap-2 text-emerald-800 font-extrabold text-xs">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>Payment Status: PAID ({scannedOrder.paymentMethod}) — No Doorstep Collection Required</span>
+                    </div>
+                    <button
+                      onClick={handleMarkDelivered}
+                      disabled={loading}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-3 rounded-xl shadow transition disabled:opacity-50"
+                    >
+                      {loading ? "CONFIRMING DELIVERY..." : "✓ MARK ORDER DELIVERED"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="bg-amber-50/80 p-5 rounded-3xl border border-amber-200 space-y-4">
+                    <div className="text-center space-y-1">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-amber-900 bg-amber-200 px-3 py-0.5 rounded-full">
+                        DOORSTEP PAYMENT COLLECTION
+                      </span>
+                      <p className="text-xs font-bold text-slate-700 pt-1">Amount Due From Customer</p>
+                      <p className="text-2xl font-black text-amber-900">₹{scannedOrder.totalAmount}</p>
+                    </div>
 
-                <button
-                  onClick={handleMarkDelivered}
-                  disabled={loading}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-3 rounded-xl shadow transition disabled:opacity-50"
-                >
-                  {loading
-                    ? "CONFIRMING DELIVERY..."
-                    : "✓ MARK ORDER DELIVERED"}
-                </button>
-
+                    <div className="space-y-2">
+                      <p className="text-xs font-bold text-slate-800 text-center">Select Doorstep Payment Method:</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCollectionMethod("CASH");
+                            setShowConfirmCashModal(true);
+                          }}
+                          className="bg-slate-900 hover:bg-black text-white font-black text-xs py-3 rounded-2xl shadow transition flex items-center justify-center gap-1.5"
+                        >
+                          💵 CASH
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCollectionMethod("UPI");
+                            setShowUpiModal(true);
+                          }}
+                          className="bg-brand-600 hover:bg-brand-700 text-white font-black text-xs py-3 rounded-2xl shadow transition flex items-center justify-center gap-1.5"
+                        >
+                          📱 UPI QR
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
+        </div>
+      )}
+
+      {/* ======================================================
+          CASH PAYMENT CONFIRMATION MODAL
+      ====================================================== */}
+
+      {showConfirmCashModal && scannedOrder && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full space-y-5 text-center shadow-2xl">
+            <h3 className="text-lg font-black text-slate-900">Confirm Cash Collection</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Confirm that cash payment of <strong className="text-slate-900 font-extrabold text-base">₹{scannedOrder.totalAmount}</strong> has been received in full from customer <strong className="text-slate-900">{scannedOrder.customerName}</strong> for Order <strong className="text-slate-900">#{scannedOrder.orderNumber}</strong>?
+            </p>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                disabled={collecting}
+                onClick={() => setShowConfirmCashModal(false)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-3 rounded-xl transition"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={collecting}
+                onClick={() => handleCollectPayment("CASH")}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-3 rounded-xl transition shadow-md shadow-emerald-600/30"
+              >
+                {collecting ? "Processing..." : "✓ CASH RECEIVED"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================
+          DOORSTEP UPI QR MODAL
+      ====================================================== */}
+
+      {showUpiModal && scannedOrder && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full space-y-4 text-center shadow-2xl">
+            <div className="space-y-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-brand-700 bg-brand-100 px-3 py-0.5 rounded-full">
+                DOORSTEP UPI PAYMENT
+              </span>
+              <p className="text-xs font-bold text-slate-600 pt-1">Amount To Pay</p>
+              <p className="text-2xl font-black text-brand-700">₹{scannedOrder.totalAmount}</p>
+            </div>
+
+            <div className="flex flex-col items-center justify-center p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
+                  `upi://pay?pa=${storeUpiId}&pn=Madhukar%20General%20Store&am=${Number(scannedOrder.totalAmount).toFixed(2)}&cu=INR`
+                )}`}
+                alt="Doorstep UPI QR Code"
+                className="w-52 h-52 object-contain border border-slate-200 rounded-xl bg-white p-1"
+              />
+              <div className="text-center">
+                <p className="text-xs font-bold text-slate-800">Scan using Google Pay, PhonePe, Paytm, or BHIM</p>
+                <p className="text-xs font-mono font-bold text-brand-700 mt-0.5">UPI ID: {storeUpiId}</p>
+              </div>
+            </div>
+
+            <div className="text-left space-y-1">
+              <label className="block text-xs font-bold text-slate-700">
+                UPI Transaction ID / UTR Number (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="Enter 12-digit UTR if available"
+                value={doorstepUtr}
+                onChange={(e) => setDoorstepUtr(e.target.value)}
+                className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-xl focus:outline-none focus:border-brand-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                disabled={collecting}
+                onClick={() => setShowUpiModal(false)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-3 rounded-xl transition"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={collecting}
+                onClick={() => handleCollectPayment("UPI")}
+                className="flex-1 bg-brand-600 hover:bg-brand-700 text-white font-black text-xs py-3 rounded-xl transition shadow-md shadow-brand-600/30"
+              >
+                {collecting ? "Verifying..." : "✓ PAYMENT RECEIVED"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

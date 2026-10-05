@@ -119,6 +119,144 @@ async function getAdminMetrics(req, res) {
 }
 
 // ============================================================
+// DOORSTEP PAYMENT COLLECTION (DELIVERY BOY)
+// ============================================================
+
+// POST /api/delivery/collect-payment
+async function collectDeliveryPayment(req, res) {
+  try {
+    const { orderId, method, utr } = req.body;
+
+    if (!orderId || !method) {
+      return res.status(400).json({
+        success: false,
+        message: 'Order ID and payment collection method (CASH or UPI) are required.',
+      });
+    }
+
+    const paymentMethodUpper = String(method).toUpperCase().trim();
+    if (!['CASH', 'UPI'].includes(paymentMethodUpper)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid collection method. Must be CASH or UPI.',
+      });
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        payments: true,
+        invoice: true,
+      },
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found.',
+      });
+    }
+
+    // Double payment collection protection
+    if (order.paymentStatus === 'COMPLETED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment has already been completed for this order.',
+      });
+    }
+
+    const expectedAmount = order.totalAmount;
+    const cleanUtr = String(utr || '').trim();
+    const transactionIdPayload = cleanUtr
+      ? `DOORSTEP_COLLECTION|METHOD:${paymentMethodUpper}|COLLECTOR:${req.user.id}|UTR:${cleanUtr}`
+      : `DOORSTEP_COLLECTION|METHOD:${paymentMethodUpper}|COLLECTOR:${req.user.id}`;
+
+    // Execute atomic payment collection & order completion
+    const updatedOrder = await prisma.$transaction(
+      async (tx) => {
+        const existingPayment = await tx.payment.findFirst({
+          where: { orderId },
+        });
+
+        if (existingPayment) {
+          await tx.payment.update({
+            where: { id: existingPayment.id },
+            data: {
+              paymentMethod: paymentMethodUpper,
+              amount: expectedAmount,
+              status: 'COMPLETED',
+              transactionId: transactionIdPayload,
+            },
+          });
+        } else {
+          await tx.payment.create({
+            data: {
+              orderId,
+              paymentMethod: paymentMethodUpper,
+              amount: expectedAmount,
+              status: 'COMPLETED',
+              transactionId: transactionIdPayload,
+            },
+          });
+        }
+
+        // Generate Invoice if not present
+        let invoice = order.invoice;
+        if (!invoice) {
+          const storeSettings = (await tx.storeSettings.findFirst()) || {
+            invoicePrefix: 'MGS-INV',
+            invoiceYear: '2026',
+          };
+          const invoiceCount = await tx.invoice.count();
+          const invoiceNumber = `${storeSettings.invoicePrefix}-${storeSettings.invoiceYear}-${String(invoiceCount + 1).padStart(6, '0')}`;
+          const qrToken = `mgs_qr_tok_${Date.now()}_${order.id.slice(0, 8)}`;
+
+          invoice = await tx.invoice.create({
+            data: {
+              invoiceNumber,
+              orderId: order.id,
+              qrToken,
+            },
+          });
+        }
+
+        return await tx.order.update({
+          where: { id: orderId },
+          data: {
+            paymentMethod: paymentMethodUpper,
+            paymentStatus: 'COMPLETED',
+            orderStatus: 'DELIVERED',
+          },
+          include: {
+            user: { select: { name: true, email: true, phone: true } },
+            address: true,
+            invoice: true,
+            payments: true,
+            items: true,
+          },
+        });
+      },
+      {
+        maxWait: 10000,
+        timeout: 60000,
+      }
+    );
+
+    return res.json({
+      success: true,
+      message: `✓ Doorstep payment of ₹${expectedAmount} collected via ${paymentMethodUpper}. Order #${order.orderNumber} marked as DELIVERED.`,
+      data: updatedOrder,
+    });
+  } catch (error) {
+    console.error('Collect delivery payment error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to record doorstep payment. Please try again.',
+    });
+  }
+}
+
+// ============================================================
 // PRODUCT MANAGEMENT
 // ============================================================
 
@@ -2068,6 +2206,7 @@ module.exports = {
   getAdminOrders,
   verifyPayment,
   rejectPayment,
+  collectDeliveryPayment,
 
   // Invoices
   getAdminInvoices,
