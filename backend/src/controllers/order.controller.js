@@ -393,17 +393,9 @@ async function createOrder(req, res) {
 
     const handlingCharge = 5;
     const numericDeliveryCharge = toNumber(deliveryCharge);
-    const gstPercentage = toNumber(storeSettings.gstPercentage);
 
-    let taxAmount = 0;
-
-    if (
-      storeSettings.enableGst &&
-      gstPercentage > 0
-    ) {
-      taxAmount =
-        (eligibleOrderValue * gstPercentage) / 100;
-    }
+    // GST/Tax is 0 across all orders
+    const taxAmount = 0;
 
     // --------------------------------------------------------
     // Final Total
@@ -414,8 +406,7 @@ async function createOrder(req, res) {
         (
           eligibleOrderValue +
           numericDeliveryCharge +
-          handlingCharge +
-          taxAmount
+          handlingCharge
         ) * 100
       ) / 100;
 
